@@ -7,6 +7,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Textarea } from "@/components/ui/textarea";
 import { useDroppable } from "@dnd-kit/core";
 import {
@@ -19,14 +24,18 @@ import {
   ArrowRight,
   Check,
   GripVertical,
+  HelpCircle,
   Loader2,
   MoreHorizontal,
   Plus,
   Trash2,
+  Upload,
   X,
+  Zap,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Card, ColumnView, Tag } from "../backend.d";
+import { toast } from "sonner";
+import type { Card, ColumnView, Swimlane, Tag } from "../backend.d";
 import type { User } from "../hooks/useQueries";
 import KanbanCard from "./KanbanCard";
 
@@ -70,11 +79,27 @@ interface KanbanColumnProps {
     cardId: bigint,
     dueDate: bigint | null,
   ) => Promise<void>;
+  onArchiveCard?: (cardId: bigint) => Promise<void>;
+  onRestoreCard?: (cardId: bigint) => Promise<void>;
+  onUpdateCardSwimlane?: (
+    cardId: bigint,
+    swimlaneId: bigint | null,
+  ) => Promise<void>;
   onMoveCards?: (cardIds: bigint[], targetColumnId: bigint) => Promise<void>;
+  onBulkImport?: () => void;
+  onQuickAdd?: (
+    columnId: bigint,
+    title: string,
+    tagIds: bigint[],
+    assigneeId: bigint | null,
+    dueDate: bigint | null,
+  ) => Promise<void>;
   projectTags: Tag[];
   siblingColumns: ColumnView[];
   users: User[];
   activeUser: User | null;
+  swimlanes?: Swimlane[];
+  swimlanesEnabled?: boolean;
   animationDelay?: number;
   /** When dragging a column, disable card drag (prevents overlap) */
   isDraggingColumn?: boolean;
@@ -95,11 +120,18 @@ export default function KanbanColumn({
   onAssignCard,
   onUpdateCardTags,
   onUpdateCardDueDate,
+  onArchiveCard,
+  onRestoreCard,
+  onUpdateCardSwimlane,
   onMoveCards,
+  onBulkImport,
+  onQuickAdd,
   projectTags,
   siblingColumns,
   users,
   activeUser,
+  swimlanes = [],
+  swimlanesEnabled = false,
   animationDelay = 0,
   isDraggingColumn = false,
 }: KanbanColumnProps) {
@@ -325,12 +357,150 @@ export default function KanbanColumn({
     }
   }
 
+  // ── Quick Add state ──────────────────────────────────────────────────────────
+  const [showQuickAdd, setShowQuickAdd] = useState(false);
+  const [quickAddText, setQuickAddText] = useState("");
+  const [isQuickAdding, setIsQuickAdding] = useState(false);
+  const quickAddRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (showQuickAdd) quickAddRef.current?.focus();
+  }, [showQuickAdd]);
+
+  function parseQuickAddLine(line: string): {
+    title: string;
+    tagIds: bigint[];
+    assigneeId: bigint | null;
+    dueDate: bigint | null;
+    warnings: string[];
+  } {
+    const warnings: string[] = [];
+    let rest = line;
+
+    // Extract due date
+    let dueDate: bigint | null = null;
+    rest = rest.replace(/due:(\S+)/gi, (_match, dateStr) => {
+      const d = new Date(dateStr);
+      if (Number.isNaN(d.getTime())) {
+        warnings.push(`Invalid date: "${dateStr}"`);
+      } else {
+        dueDate = BigInt(d.getTime()) * 1_000_000n;
+      }
+      return "";
+    });
+
+    // Extract tags
+    const tagIds: bigint[] = [];
+    rest = rest.replace(/#(\S+)/g, (_match, tagName) => {
+      const tag = projectTags.find(
+        (t) => t.name.toLowerCase() === tagName.toLowerCase(),
+      );
+      if (tag) {
+        tagIds.push(tag.id);
+      } else {
+        warnings.push(`Tag not found: "#${tagName}"`);
+      }
+      return "";
+    });
+
+    // Extract assignee
+    let assigneeId: bigint | null = null;
+    rest = rest.replace(/@(\S+)/g, (_match, userName) => {
+      const user = users.find(
+        (u) => u.name.toLowerCase() === userName.toLowerCase(),
+      );
+      if (user) {
+        assigneeId = user.id;
+      } else {
+        warnings.push(`User not found: "@${userName}"`);
+      }
+      return "";
+    });
+
+    const title = rest.replace(/\s+/g, " ").trim();
+    return { title, tagIds, assigneeId, dueDate, warnings };
+  }
+
+  async function handleQuickAdd() {
+    const lines = quickAddText
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0);
+    if (lines.length === 0) return;
+    if (!activeUser) {
+      toast.error("Set yourself as active first");
+      return;
+    }
+
+    setIsQuickAdding(true);
+    let created = 0;
+    const allWarnings: string[] = [];
+
+    for (const line of lines) {
+      const { title, tagIds, assigneeId, dueDate, warnings } =
+        parseQuickAddLine(line);
+      if (!title) {
+        allWarnings.push(`Skipped empty title from line: "${line}"`);
+        continue;
+      }
+      try {
+        if (onQuickAdd) {
+          await onQuickAdd(column.id, title, tagIds, assigneeId, dueDate);
+        } else {
+          await onAddCard(column.id, title, null);
+        }
+        created++;
+        allWarnings.push(...warnings.map((w) => `"${title}": ${w}`));
+      } catch {
+        allWarnings.push(`Failed to create card: "${title}"`);
+      }
+    }
+
+    setIsQuickAdding(false);
+    setQuickAddText("");
+    setShowQuickAdd(false);
+
+    if (created > 0) {
+      const msg = `${created} card${created !== 1 ? "s" : ""} created`;
+      if (allWarnings.length > 0) {
+        toast.warning(`${msg}. Warnings: ${allWarnings.join("; ")}`);
+      } else {
+        toast.success(msg);
+      }
+    }
+  }
+
   const cardIds = cards.map((c) => c.id.toString());
 
   // Sibling columns excluding this one
   const targetColumns = siblingColumns.filter(
     (c) => c.id.toString() !== column.id.toString(),
   );
+
+  // ── Swimlane grouping ─────────────────────────────────────────────────────────
+  function groupCardsBySwimlane(): Array<{
+    swimlane: Swimlane | null;
+    cards: Card[];
+  }> {
+    if (!swimlanesEnabled || swimlanes.length === 0) {
+      return [{ swimlane: null, cards }];
+    }
+    const sorted = [...swimlanes].sort((a, b) => Number(a.order - b.order));
+    const groups: Array<{ swimlane: Swimlane | null; cards: Card[] }> =
+      sorted.map((sl) => ({
+        swimlane: sl,
+        cards: cards.filter(
+          (c) =>
+            c.swimlaneId != null &&
+            c.swimlaneId.toString() === sl.id.toString(),
+        ),
+      }));
+    const defaultCards = cards.filter((c) => c.swimlaneId == null);
+    if (defaultCards.length > 0) {
+      groups.push({ swimlane: null, cards: defaultCards });
+    }
+    return groups;
+  }
 
   return (
     <div
@@ -406,6 +576,16 @@ export default function KanbanColumn({
             >
               {cards.length}
             </Badge>
+            {/* Quick Add button */}
+            <button
+              type="button"
+              className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors shrink-0"
+              onClick={() => setShowQuickAdd((v) => !v)}
+              title="Quick add cards"
+              aria-label="Quick add cards"
+            >
+              <Zap className="h-3.5 w-3.5" />
+            </button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
@@ -416,9 +596,13 @@ export default function KanbanColumn({
                   <MoreHorizontal className="h-4 w-4" />
                 </button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuContent align="end" className="w-48">
                 <DropdownMenuItem onClick={startRename}>
                   Rename column
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={onBulkImport}>
+                  <Upload className="h-3.5 w-3.5 mr-2" />
+                  Bulk import cards
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={handleDeleteColumn}
@@ -435,11 +619,106 @@ export default function KanbanColumn({
         )}
       </div>
 
+      {/* Quick Add panel */}
+      {showQuickAdd && (
+        <div className="mx-3 mb-2 rounded-lg border border-primary/20 bg-primary/5 p-3 space-y-2">
+          <div className="flex items-center gap-2">
+            <Zap className="h-3.5 w-3.5 text-primary shrink-0" />
+            <span className="text-xs font-semibold text-primary">
+              Quick Add
+            </span>
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  className="text-muted-foreground hover:text-foreground transition-colors ml-auto"
+                >
+                  <HelpCircle className="h-3.5 w-3.5" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent className="w-72 text-xs" side="right">
+                <p className="font-semibold text-foreground mb-2">
+                  Quick Add shortcuts
+                </p>
+                <p className="text-muted-foreground mb-1">
+                  One card per line. Shortcuts:
+                </p>
+                <ul className="space-y-1 text-muted-foreground">
+                  <li>
+                    <code className="text-primary">#TagName</code> — apply a tag
+                  </li>
+                  <li>
+                    <code className="text-primary">@UserName</code> — assign to
+                    user
+                  </li>
+                  <li>
+                    <code className="text-primary">due:YYYY-MM-DD</code> — set
+                    due date
+                  </li>
+                </ul>
+                <div className="mt-2 pt-2 border-t border-border space-y-1">
+                  <p className="text-muted-foreground/70 font-medium">
+                    Examples:
+                  </p>
+                  <p className="text-muted-foreground/70 font-mono text-[10px]">
+                    Priority 22 #Active @Brandy due:2026-03-15
+                  </p>
+                  <p className="text-muted-foreground/70 font-mono text-[10px]">
+                    Send to client #WaitingForClient
+                  </p>
+                  <p className="text-muted-foreground/70 font-mono text-[10px]">
+                    Plain title with no shortcuts
+                  </p>
+                </div>
+              </PopoverContent>
+            </Popover>
+          </div>
+          <Textarea
+            ref={quickAddRef}
+            value={quickAddText}
+            onChange={(e) => setQuickAddText(e.target.value)}
+            placeholder={
+              "One card per line\nPriority 22 #Active @Terry due:2026-03-15"
+            }
+            rows={4}
+            className="text-xs resize-none"
+            disabled={isQuickAdding}
+          />
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              className="h-7 text-xs px-3 gap-1"
+              onClick={handleQuickAdd}
+              disabled={!quickAddText.trim() || isQuickAdding}
+            >
+              {isQuickAdding ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <Zap className="h-3 w-3" />
+              )}
+              Create cards
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 text-xs px-3"
+              onClick={() => {
+                setShowQuickAdd(false);
+                setQuickAddText("");
+              }}
+              disabled={isQuickAdding}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Cards drop zone */}
       <SortableContext items={cardIds} strategy={verticalListSortingStrategy}>
         <div
           ref={setDropRef}
-          className={`flex-1 overflow-y-auto px-3 pb-2 space-y-2 min-h-[80px] max-h-[calc(100vh-300px)] transition-colors rounded-b-md ${
+          className={`flex-1 overflow-y-auto px-3 pb-2 min-h-[80px] max-h-[calc(100vh-300px)] transition-colors rounded-b-md ${
             isOver && !isDraggingColumn ? "column-drag-over" : ""
           } ${accentClass}`}
         >
@@ -454,35 +733,116 @@ export default function KanbanColumn({
               </p>
             </div>
           )}
-          {cards.map((card, idx) => (
-            <KanbanCard
-              key={card.id.toString()}
-              card={card}
-              accentClass={`col-accent-border ${accentClass}`}
-              canMoveLeft={!isFirst}
-              canMoveRight={!isLast}
-              onMoveLeft={() => handleMoveCard(card, "left")}
-              onMoveRight={() => handleMoveCard(card, "right")}
-              onDelete={() => handleDeleteCard(card.id)}
-              onUpdate={(title, description) =>
-                onUpdateCard(card.id, title, description)
-              }
-              onAssign={(userId) => onAssignCard(card.id, userId)}
-              onUpdateTags={(tagIds) => onUpdateCardTags(card.id, tagIds)}
-              onUpdateDueDate={(dueDate) =>
-                onUpdateCardDueDate(card.id, dueDate)
-              }
-              availableTags={projectTags}
-              users={users}
-              activeUser={activeUser}
-              isMoving={movingCardId === card.id}
-              isDeleting={deletingCardId === card.id}
-              disableDrag={isDraggingColumn || isSelectionMode}
-              isSelected={selectedCardIds.has(card.id.toString())}
-              isSelectionMode={isSelectionMode}
-              onToggleSelect={(e) => handleToggleSelect(card, idx, e)}
-            />
-          ))}
+
+          {/* Swimlane groups or flat card list */}
+          {swimlanesEnabled && swimlanes.length > 0 ? (
+            groupCardsBySwimlane().map((group, groupIdx) => (
+              <div
+                key={group.swimlane ? group.swimlane.id.toString() : "default"}
+                className={groupIdx > 0 ? "mt-3" : ""}
+              >
+                {/* Swimlane header */}
+                <div className="flex items-center gap-2 mb-1.5 px-1">
+                  <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide truncate">
+                    {group.swimlane ? group.swimlane.name : "Default"}
+                  </span>
+                  <div className="flex-1 h-px bg-border/60" />
+                  <span className="text-[10px] text-muted-foreground shrink-0">
+                    {group.cards.length}
+                  </span>
+                </div>
+                <div className="space-y-2">
+                  {group.cards.map((card, idx) => {
+                    const globalIdx = cards.findIndex((c) => c.id === card.id);
+                    return (
+                      <KanbanCard
+                        key={card.id.toString()}
+                        card={card}
+                        accentClass={`col-accent-border ${accentClass}`}
+                        canMoveLeft={!isFirst}
+                        canMoveRight={!isLast}
+                        onMoveLeft={() => handleMoveCard(card, "left")}
+                        onMoveRight={() => handleMoveCard(card, "right")}
+                        onDelete={() => handleDeleteCard(card.id)}
+                        onUpdate={(title, description) =>
+                          onUpdateCard(card.id, title, description)
+                        }
+                        onAssign={(userId) => onAssignCard(card.id, userId)}
+                        onUpdateTags={(tagIds) =>
+                          onUpdateCardTags(card.id, tagIds)
+                        }
+                        onUpdateDueDate={(dueDate) =>
+                          onUpdateCardDueDate(card.id, dueDate)
+                        }
+                        onArchive={onArchiveCard}
+                        onRestore={onRestoreCard}
+                        onUpdateSwimlane={onUpdateCardSwimlane}
+                        availableTags={projectTags}
+                        swimlanes={swimlanes}
+                        swimlanesEnabled={swimlanesEnabled}
+                        users={users}
+                        activeUser={activeUser}
+                        isMoving={movingCardId === card.id}
+                        isDeleting={deletingCardId === card.id}
+                        disableDrag={isDraggingColumn || isSelectionMode}
+                        isSelected={selectedCardIds.has(card.id.toString())}
+                        isSelectionMode={isSelectionMode}
+                        onToggleSelect={(e) =>
+                          handleToggleSelect(
+                            card,
+                            globalIdx >= 0 ? globalIdx : idx,
+                            e,
+                          )
+                        }
+                      />
+                    );
+                  })}
+                  {group.cards.length === 0 && (
+                    <div className="py-3 text-center text-xs text-muted-foreground/50 italic">
+                      Empty
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className="space-y-2">
+              {cards.map((card, idx) => (
+                <KanbanCard
+                  key={card.id.toString()}
+                  card={card}
+                  accentClass={`col-accent-border ${accentClass}`}
+                  canMoveLeft={!isFirst}
+                  canMoveRight={!isLast}
+                  onMoveLeft={() => handleMoveCard(card, "left")}
+                  onMoveRight={() => handleMoveCard(card, "right")}
+                  onDelete={() => handleDeleteCard(card.id)}
+                  onUpdate={(title, description) =>
+                    onUpdateCard(card.id, title, description)
+                  }
+                  onAssign={(userId) => onAssignCard(card.id, userId)}
+                  onUpdateTags={(tagIds) => onUpdateCardTags(card.id, tagIds)}
+                  onUpdateDueDate={(dueDate) =>
+                    onUpdateCardDueDate(card.id, dueDate)
+                  }
+                  onArchive={onArchiveCard}
+                  onRestore={onRestoreCard}
+                  onUpdateSwimlane={onUpdateCardSwimlane}
+                  availableTags={projectTags}
+                  swimlanes={swimlanes}
+                  swimlanesEnabled={swimlanesEnabled}
+                  users={users}
+                  activeUser={activeUser}
+                  isMoving={movingCardId === card.id}
+                  isDeleting={deletingCardId === card.id}
+                  disableDrag={isDraggingColumn || isSelectionMode}
+                  isSelected={selectedCardIds.has(card.id.toString())}
+                  isSelectionMode={isSelectionMode}
+                  onToggleSelect={(e) => handleToggleSelect(card, idx, e)}
+                />
+              ))}
+            </div>
+          )}
 
           {/* Inline add card form */}
           {addingCard && (

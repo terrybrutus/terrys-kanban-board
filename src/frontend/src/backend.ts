@@ -89,6 +89,12 @@ export class ExternalBlob {
         return this;
     }
 }
+export interface Swimlane {
+    id: bigint;
+    order: bigint;
+    name: string;
+    projectId: bigint;
+}
 export interface ColumnView {
     id: bigint;
     name: string;
@@ -116,29 +122,34 @@ export interface Card {
     tags: Array<bigint>;
     dueDate?: bigint;
     description?: string;
+    isArchived: boolean;
     projectId: bigint;
     assignedUserId?: bigint;
+    swimlaneId?: bigint;
     columnId: bigint;
+    archivedAt?: bigint;
 }
 export interface User {
     id: bigint;
     isMasterAdmin: boolean;
     name: string;
+    securityQuestion?: string;
     pinHash: string;
     isAdmin: boolean;
+    securityAnswerHash?: string;
+}
+export interface ChecklistItem {
+    id: bigint;
+    order: bigint;
+    createdAt: bigint;
+    text: string;
+    isDone: boolean;
+    cardId: bigint;
 }
 export interface Project {
     id: bigint;
     name: string;
-}
-export interface Revision {
-    id: bigint;
-    actorName: string;
-    description: string;
-    projectId: bigint;
-    timestamp: bigint;
-    cardId?: bigint;
-    revisionType: string;
+    swimlanesEnabled: boolean;
 }
 export interface FilterPreset {
     id: bigint;
@@ -153,32 +164,59 @@ export interface FilterPreset {
     dateFrom: string;
     dateField?: string;
 }
+export interface Revision {
+    id: bigint;
+    actorName: string;
+    description: string;
+    projectId: bigint;
+    timestamp: bigint;
+    cardId?: bigint;
+    revisionType: string;
+}
+export interface ProjectSummary {
+    unassignedCount: bigint;
+    totalCards: bigint;
+    overdueCount: bigint;
+    dueSoonCount: bigint;
+    tagCounts: Array<[bigint, bigint]>;
+}
 export interface backendInterface {
+    addChecklistItem(cardId: bigint, text: string, actorUserId: bigint): Promise<bigint>;
     addComment(cardId: bigint, text: string, actorUserId: bigint): Promise<bigint>;
+    archiveCard(cardId: bigint, actorUserId: bigint): Promise<void>;
     assignCard(cardId: bigint, userId: bigint | null, actorUserId: bigint): Promise<void>;
     changeUserPin(userId: bigint, oldPinHash: string, newPinHash: string): Promise<void>;
     clearRevisions(): Promise<void>;
     createCard(title: string, description: string | null, columnId: bigint, actorUserId: bigint, projectId: bigint): Promise<bigint>;
     createColumn(name: string, actorUserId: bigint, projectId: bigint): Promise<bigint>;
     createProject(name: string, actorUserId: bigint): Promise<bigint>;
+    createSwimlane(projectId: bigint, name: string, actorUserId: bigint): Promise<bigint>;
     createTag(projectId: bigint, name: string, color: string, actorUserId: bigint): Promise<bigint>;
     createUser(name: string, pinHash: string): Promise<bigint>;
     deleteCard(cardId: bigint, actorUserId: bigint): Promise<void>;
+    deleteChecklistItem(itemId: bigint, actorUserId: bigint): Promise<void>;
     deleteColumn(columnId: bigint, actorUserId: bigint): Promise<void>;
     deleteComment(commentId: bigint, actorUserId: bigint): Promise<void>;
     deleteFilterPreset(presetId: bigint, actorUserId: bigint): Promise<void>;
     deleteProject(projectId: bigint, actorUserId: bigint): Promise<void>;
+    deleteSwimlane(swimlaneId: bigint, actorUserId: bigint): Promise<void>;
     deleteTag(tagId: bigint, actorUserId: bigint): Promise<void>;
     deleteUser(userId: bigint, actorUserId: bigint): Promise<void>;
     demoteUser(userId: bigint, actorUserId: bigint): Promise<void>;
+    disableSwimlanes(projectId: bigint, actorUserId: bigint): Promise<void>;
+    enableSwimlanes(projectId: bigint, actorUserId: bigint): Promise<void>;
+    getArchivedCards(projectId: bigint): Promise<Array<Card>>;
     getCardComments(cardId: bigint): Promise<Array<Comment>>;
     getCardRevisions(cardId: bigint): Promise<Array<Revision>>;
     getCards(projectId: bigint): Promise<Array<Card>>;
+    getChecklistItems(cardId: bigint): Promise<Array<ChecklistItem>>;
     getColumns(projectId: bigint): Promise<Array<ColumnView>>;
     getFilterPresets(projectId: bigint): Promise<Array<FilterPreset>>;
+    getProjectSummary(projectId: bigint): Promise<ProjectSummary>;
     getProjectTags(projectId: bigint): Promise<Array<Tag>>;
     getProjects(): Promise<Array<Project>>;
     getRevisions(projectId: bigint): Promise<Array<Revision>>;
+    getSwimlanes(projectId: bigint): Promise<Array<Swimlane>>;
     getUsers(): Promise<Array<User>>;
     initBoard(): Promise<void>;
     initDefaultProject(): Promise<bigint>;
@@ -188,19 +226,42 @@ export interface backendInterface {
     promoteUser(userId: bigint, actorUserId: bigint): Promise<void>;
     renameColumn(columnId: bigint, newName: string, actorUserId: bigint): Promise<void>;
     renameProject(projectId: bigint, newName: string, actorUserId: bigint): Promise<void>;
+    renameSwimlane(swimlaneId: bigint, newName: string, actorUserId: bigint): Promise<void>;
     renameTag(tagId: bigint, newName: string, actorUserId: bigint): Promise<void>;
+    renameUser(userId: bigint, newName: string, actorUserId: bigint): Promise<void>;
+    reorderChecklistItems(cardId: bigint, newOrder: Array<bigint>, actorUserId: bigint): Promise<void>;
     reorderColumns(newOrder: Array<bigint>, actorUserId: bigint): Promise<void>;
+    reorderSwimlanes(newOrder: Array<bigint>, actorUserId: bigint): Promise<void>;
+    resetMasterAdminPinWithSecurityAnswer(answerHash: string, newPinHash: string): Promise<boolean>;
     resetUserPin(userId: bigint, actorUserId: bigint, newPinHash: string): Promise<void>;
+    restoreCard(cardId: bigint, actorUserId: bigint): Promise<void>;
     saveFilterPreset(projectId: bigint, createdByUserId: bigint, name: string, assigneeId: bigint | null, tagIds: Array<bigint>, unassignedOnly: boolean, textSearch: string, dateField: string | null, dateFrom: string, dateTo: string): Promise<bigint>;
+    setMasterAdminSecurityQuestion(question: string, answerHash: string, actorUserId: bigint): Promise<void>;
     setupMasterAdmin(name: string, pinHash: string): Promise<bigint>;
     updateCard(cardId: bigint, title: string, description: string | null, actorUserId: bigint): Promise<void>;
     updateCardDueDate(cardId: bigint, dueDate: bigint | null, actorUserId: bigint): Promise<void>;
+    updateCardSwimlane(cardId: bigint, swimlaneId: bigint | null, actorUserId: bigint): Promise<void>;
     updateCardTags(cardId: bigint, tagIds: Array<bigint>, actorUserId: bigint): Promise<void>;
+    updateChecklistItem(itemId: bigint, text: string, isDone: boolean, actorUserId: bigint): Promise<void>;
     verifyPin(userId: bigint, pinHash: string): Promise<boolean>;
 }
-import type { Card as _Card, FilterPreset as _FilterPreset, Revision as _Revision } from "./declarations/backend.did.d.ts";
+import type { Card as _Card, FilterPreset as _FilterPreset, Revision as _Revision, User as _User } from "./declarations/backend.did.d.ts";
 export class Backend implements backendInterface {
     constructor(private actor: ActorSubclass<_SERVICE>, private _uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, private _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, private processError?: (error: unknown) => never){}
+    async addChecklistItem(arg0: bigint, arg1: string, arg2: bigint): Promise<bigint> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.addChecklistItem(arg0, arg1, arg2);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.addChecklistItem(arg0, arg1, arg2);
+            return result;
+        }
+    }
     async addComment(arg0: bigint, arg1: string, arg2: bigint): Promise<bigint> {
         if (this.processError) {
             try {
@@ -212,6 +273,20 @@ export class Backend implements backendInterface {
             }
         } else {
             const result = await this.actor.addComment(arg0, arg1, arg2);
+            return result;
+        }
+    }
+    async archiveCard(arg0: bigint, arg1: bigint): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.archiveCard(arg0, arg1);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.archiveCard(arg0, arg1);
             return result;
         }
     }
@@ -299,6 +374,20 @@ export class Backend implements backendInterface {
             return result;
         }
     }
+    async createSwimlane(arg0: bigint, arg1: string, arg2: bigint): Promise<bigint> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.createSwimlane(arg0, arg1, arg2);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.createSwimlane(arg0, arg1, arg2);
+            return result;
+        }
+    }
     async createTag(arg0: bigint, arg1: string, arg2: string, arg3: bigint): Promise<bigint> {
         if (this.processError) {
             try {
@@ -338,6 +427,20 @@ export class Backend implements backendInterface {
             }
         } else {
             const result = await this.actor.deleteCard(arg0, arg1);
+            return result;
+        }
+    }
+    async deleteChecklistItem(arg0: bigint, arg1: bigint): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.deleteChecklistItem(arg0, arg1);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.deleteChecklistItem(arg0, arg1);
             return result;
         }
     }
@@ -397,6 +500,20 @@ export class Backend implements backendInterface {
             return result;
         }
     }
+    async deleteSwimlane(arg0: bigint, arg1: bigint): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.deleteSwimlane(arg0, arg1);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.deleteSwimlane(arg0, arg1);
+            return result;
+        }
+    }
     async deleteTag(arg0: bigint, arg1: bigint): Promise<void> {
         if (this.processError) {
             try {
@@ -439,6 +556,48 @@ export class Backend implements backendInterface {
             return result;
         }
     }
+    async disableSwimlanes(arg0: bigint, arg1: bigint): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.disableSwimlanes(arg0, arg1);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.disableSwimlanes(arg0, arg1);
+            return result;
+        }
+    }
+    async enableSwimlanes(arg0: bigint, arg1: bigint): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.enableSwimlanes(arg0, arg1);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.enableSwimlanes(arg0, arg1);
+            return result;
+        }
+    }
+    async getArchivedCards(arg0: bigint): Promise<Array<Card>> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getArchivedCards(arg0);
+                return from_candid_vec_n3(this._uploadFile, this._downloadFile, result);
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getArchivedCards(arg0);
+            return from_candid_vec_n3(this._uploadFile, this._downloadFile, result);
+        }
+    }
     async getCardComments(arg0: bigint): Promise<Array<Comment>> {
         if (this.processError) {
             try {
@@ -457,28 +616,42 @@ export class Backend implements backendInterface {
         if (this.processError) {
             try {
                 const result = await this.actor.getCardRevisions(arg0);
-                return from_candid_vec_n3(this._uploadFile, this._downloadFile, result);
+                return from_candid_vec_n9(this._uploadFile, this._downloadFile, result);
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
             const result = await this.actor.getCardRevisions(arg0);
-            return from_candid_vec_n3(this._uploadFile, this._downloadFile, result);
+            return from_candid_vec_n9(this._uploadFile, this._downloadFile, result);
         }
     }
     async getCards(arg0: bigint): Promise<Array<Card>> {
         if (this.processError) {
             try {
                 const result = await this.actor.getCards(arg0);
-                return from_candid_vec_n7(this._uploadFile, this._downloadFile, result);
+                return from_candid_vec_n3(this._uploadFile, this._downloadFile, result);
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
             const result = await this.actor.getCards(arg0);
-            return from_candid_vec_n7(this._uploadFile, this._downloadFile, result);
+            return from_candid_vec_n3(this._uploadFile, this._downloadFile, result);
+        }
+    }
+    async getChecklistItems(arg0: bigint): Promise<Array<ChecklistItem>> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getChecklistItems(arg0);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getChecklistItems(arg0);
+            return result;
         }
     }
     async getColumns(arg0: bigint): Promise<Array<ColumnView>> {
@@ -507,6 +680,20 @@ export class Backend implements backendInterface {
         } else {
             const result = await this.actor.getFilterPresets(arg0);
             return from_candid_vec_n12(this._uploadFile, this._downloadFile, result);
+        }
+    }
+    async getProjectSummary(arg0: bigint): Promise<ProjectSummary> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getProjectSummary(arg0);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getProjectSummary(arg0);
+            return result;
         }
     }
     async getProjectTags(arg0: bigint): Promise<Array<Tag>> {
@@ -541,28 +728,42 @@ export class Backend implements backendInterface {
         if (this.processError) {
             try {
                 const result = await this.actor.getRevisions(arg0);
-                return from_candid_vec_n3(this._uploadFile, this._downloadFile, result);
+                return from_candid_vec_n9(this._uploadFile, this._downloadFile, result);
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
             const result = await this.actor.getRevisions(arg0);
-            return from_candid_vec_n3(this._uploadFile, this._downloadFile, result);
+            return from_candid_vec_n9(this._uploadFile, this._downloadFile, result);
         }
     }
-    async getUsers(): Promise<Array<User>> {
+    async getSwimlanes(arg0: bigint): Promise<Array<Swimlane>> {
         if (this.processError) {
             try {
-                const result = await this.actor.getUsers();
+                const result = await this.actor.getSwimlanes(arg0);
                 return result;
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.getUsers();
+            const result = await this.actor.getSwimlanes(arg0);
             return result;
+        }
+    }
+    async getUsers(): Promise<Array<User>> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getUsers();
+                return from_candid_vec_n15(this._uploadFile, this._downloadFile, result);
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getUsers();
+            return from_candid_vec_n15(this._uploadFile, this._downloadFile, result);
         }
     }
     async initBoard(): Promise<void> {
@@ -677,6 +878,20 @@ export class Backend implements backendInterface {
             return result;
         }
     }
+    async renameSwimlane(arg0: bigint, arg1: string, arg2: bigint): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.renameSwimlane(arg0, arg1, arg2);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.renameSwimlane(arg0, arg1, arg2);
+            return result;
+        }
+    }
     async renameTag(arg0: bigint, arg1: string, arg2: bigint): Promise<void> {
         if (this.processError) {
             try {
@@ -688,6 +903,34 @@ export class Backend implements backendInterface {
             }
         } else {
             const result = await this.actor.renameTag(arg0, arg1, arg2);
+            return result;
+        }
+    }
+    async renameUser(arg0: bigint, arg1: string, arg2: bigint): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.renameUser(arg0, arg1, arg2);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.renameUser(arg0, arg1, arg2);
+            return result;
+        }
+    }
+    async reorderChecklistItems(arg0: bigint, arg1: Array<bigint>, arg2: bigint): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.reorderChecklistItems(arg0, arg1, arg2);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.reorderChecklistItems(arg0, arg1, arg2);
             return result;
         }
     }
@@ -705,6 +948,34 @@ export class Backend implements backendInterface {
             return result;
         }
     }
+    async reorderSwimlanes(arg0: Array<bigint>, arg1: bigint): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.reorderSwimlanes(arg0, arg1);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.reorderSwimlanes(arg0, arg1);
+            return result;
+        }
+    }
+    async resetMasterAdminPinWithSecurityAnswer(arg0: string, arg1: string): Promise<boolean> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.resetMasterAdminPinWithSecurityAnswer(arg0, arg1);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.resetMasterAdminPinWithSecurityAnswer(arg0, arg1);
+            return result;
+        }
+    }
     async resetUserPin(arg0: bigint, arg1: bigint, arg2: string): Promise<void> {
         if (this.processError) {
             try {
@@ -719,6 +990,20 @@ export class Backend implements backendInterface {
             return result;
         }
     }
+    async restoreCard(arg0: bigint, arg1: bigint): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.restoreCard(arg0, arg1);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.restoreCard(arg0, arg1);
+            return result;
+        }
+    }
     async saveFilterPreset(arg0: bigint, arg1: bigint, arg2: string, arg3: bigint | null, arg4: Array<bigint>, arg5: boolean, arg6: string, arg7: string | null, arg8: string, arg9: string): Promise<bigint> {
         if (this.processError) {
             try {
@@ -730,6 +1015,20 @@ export class Backend implements backendInterface {
             }
         } else {
             const result = await this.actor.saveFilterPreset(arg0, arg1, arg2, to_candid_opt_n1(this._uploadFile, this._downloadFile, arg3), arg4, arg5, arg6, to_candid_opt_n2(this._uploadFile, this._downloadFile, arg7), arg8, arg9);
+            return result;
+        }
+    }
+    async setMasterAdminSecurityQuestion(arg0: string, arg1: string, arg2: bigint): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.setMasterAdminSecurityQuestion(arg0, arg1, arg2);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.setMasterAdminSecurityQuestion(arg0, arg1, arg2);
             return result;
         }
     }
@@ -764,14 +1063,28 @@ export class Backend implements backendInterface {
     async updateCardDueDate(arg0: bigint, arg1: bigint | null, arg2: bigint): Promise<void> {
         if (this.processError) {
             try {
-                const result = await this.actor.updateCardDueDate(arg0, to_candid_opt_n15(this._uploadFile, this._downloadFile, arg1), arg2);
+                const result = await this.actor.updateCardDueDate(arg0, to_candid_opt_n18(this._uploadFile, this._downloadFile, arg1), arg2);
                 return result;
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.updateCardDueDate(arg0, to_candid_opt_n15(this._uploadFile, this._downloadFile, arg1), arg2);
+            const result = await this.actor.updateCardDueDate(arg0, to_candid_opt_n18(this._uploadFile, this._downloadFile, arg1), arg2);
+            return result;
+        }
+    }
+    async updateCardSwimlane(arg0: bigint, arg1: bigint | null, arg2: bigint): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.updateCardSwimlane(arg0, to_candid_opt_n1(this._uploadFile, this._downloadFile, arg1), arg2);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.updateCardSwimlane(arg0, to_candid_opt_n1(this._uploadFile, this._downloadFile, arg1), arg2);
             return result;
         }
     }
@@ -786,6 +1099,20 @@ export class Backend implements backendInterface {
             }
         } else {
             const result = await this.actor.updateCardTags(arg0, arg1, arg2);
+            return result;
+        }
+    }
+    async updateChecklistItem(arg0: bigint, arg1: string, arg2: boolean, arg3: bigint): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.updateChecklistItem(arg0, arg1, arg2, arg3);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.updateChecklistItem(arg0, arg1, arg2, arg3);
             return result;
         }
     }
@@ -804,23 +1131,53 @@ export class Backend implements backendInterface {
         }
     }
 }
-function from_candid_Card_n8(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _Card): Card {
-    return from_candid_record_n9(_uploadFile, _downloadFile, value);
+function from_candid_Card_n4(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _Card): Card {
+    return from_candid_record_n5(_uploadFile, _downloadFile, value);
 }
 function from_candid_FilterPreset_n13(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _FilterPreset): FilterPreset {
     return from_candid_record_n14(_uploadFile, _downloadFile, value);
 }
-function from_candid_Revision_n4(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _Revision): Revision {
-    return from_candid_record_n5(_uploadFile, _downloadFile, value);
+function from_candid_Revision_n10(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _Revision): Revision {
+    return from_candid_record_n11(_uploadFile, _downloadFile, value);
 }
-function from_candid_opt_n10(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [bigint]): bigint | null {
-    return value.length === 0 ? null : value[0];
-}
-function from_candid_opt_n11(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [string]): string | null {
-    return value.length === 0 ? null : value[0];
+function from_candid_User_n16(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _User): User {
+    return from_candid_record_n17(_uploadFile, _downloadFile, value);
 }
 function from_candid_opt_n6(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [bigint]): bigint | null {
     return value.length === 0 ? null : value[0];
+}
+function from_candid_opt_n7(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [string]): string | null {
+    return value.length === 0 ? null : value[0];
+}
+function from_candid_opt_n8(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [bigint]): bigint | null {
+    return value.length === 0 ? null : value[0];
+}
+function from_candid_record_n11(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+    id: bigint;
+    actorName: string;
+    description: string;
+    projectId: bigint;
+    timestamp: bigint;
+    cardId: [] | [bigint];
+    revisionType: string;
+}): {
+    id: bigint;
+    actorName: string;
+    description: string;
+    projectId: bigint;
+    timestamp: bigint;
+    cardId?: bigint;
+    revisionType: string;
+} {
+    return {
+        id: value.id,
+        actorName: value.actorName,
+        description: value.description,
+        projectId: value.projectId,
+        timestamp: value.timestamp,
+        cardId: record_opt_to_undefined(from_candid_opt_n8(_uploadFile, _downloadFile, value.cardId)),
+        revisionType: value.revisionType
+    };
 }
 function from_candid_record_n14(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
     id: bigint;
@@ -850,7 +1207,7 @@ function from_candid_record_n14(_uploadFile: (file: ExternalBlob) => Promise<Uin
     return {
         id: value.id,
         dateTo: value.dateTo,
-        assigneeId: record_opt_to_undefined(from_candid_opt_n6(_uploadFile, _downloadFile, value.assigneeId)),
+        assigneeId: record_opt_to_undefined(from_candid_opt_n8(_uploadFile, _downloadFile, value.assigneeId)),
         createdByUserId: value.createdByUserId,
         name: value.name,
         tagIds: value.tagIds,
@@ -858,46 +1215,49 @@ function from_candid_record_n14(_uploadFile: (file: ExternalBlob) => Promise<Uin
         textSearch: value.textSearch,
         unassignedOnly: value.unassignedOnly,
         dateFrom: value.dateFrom,
-        dateField: record_opt_to_undefined(from_candid_opt_n11(_uploadFile, _downloadFile, value.dateField))
+        dateField: record_opt_to_undefined(from_candid_opt_n7(_uploadFile, _downloadFile, value.dateField))
     };
 }
-function from_candid_record_n5(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+function from_candid_record_n17(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
     id: bigint;
-    actorName: string;
-    description: string;
-    projectId: bigint;
-    timestamp: bigint;
-    cardId: [] | [bigint];
-    revisionType: string;
+    isMasterAdmin: boolean;
+    name: string;
+    securityQuestion: [] | [string];
+    pinHash: string;
+    isAdmin: boolean;
+    securityAnswerHash: [] | [string];
 }): {
     id: bigint;
-    actorName: string;
-    description: string;
-    projectId: bigint;
-    timestamp: bigint;
-    cardId?: bigint;
-    revisionType: string;
+    isMasterAdmin: boolean;
+    name: string;
+    securityQuestion?: string;
+    pinHash: string;
+    isAdmin: boolean;
+    securityAnswerHash?: string;
 } {
     return {
         id: value.id,
-        actorName: value.actorName,
-        description: value.description,
-        projectId: value.projectId,
-        timestamp: value.timestamp,
-        cardId: record_opt_to_undefined(from_candid_opt_n6(_uploadFile, _downloadFile, value.cardId)),
-        revisionType: value.revisionType
+        isMasterAdmin: value.isMasterAdmin,
+        name: value.name,
+        securityQuestion: record_opt_to_undefined(from_candid_opt_n7(_uploadFile, _downloadFile, value.securityQuestion)),
+        pinHash: value.pinHash,
+        isAdmin: value.isAdmin,
+        securityAnswerHash: record_opt_to_undefined(from_candid_opt_n7(_uploadFile, _downloadFile, value.securityAnswerHash))
     };
 }
-function from_candid_record_n9(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+function from_candid_record_n5(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
     id: bigint;
     title: string;
     createdAt: bigint;
     tags: Array<bigint>;
     dueDate: [] | [bigint];
     description: [] | [string];
+    isArchived: boolean;
     projectId: bigint;
     assignedUserId: [] | [bigint];
+    swimlaneId: [] | [bigint];
     columnId: bigint;
+    archivedAt: [] | [bigint];
 }): {
     id: bigint;
     title: string;
@@ -905,35 +1265,44 @@ function from_candid_record_n9(_uploadFile: (file: ExternalBlob) => Promise<Uint
     tags: Array<bigint>;
     dueDate?: bigint;
     description?: string;
+    isArchived: boolean;
     projectId: bigint;
     assignedUserId?: bigint;
+    swimlaneId?: bigint;
     columnId: bigint;
+    archivedAt?: bigint;
 } {
     return {
         id: value.id,
         title: value.title,
         createdAt: value.createdAt,
         tags: value.tags,
-        dueDate: record_opt_to_undefined(from_candid_opt_n10(_uploadFile, _downloadFile, value.dueDate)),
-        description: record_opt_to_undefined(from_candid_opt_n11(_uploadFile, _downloadFile, value.description)),
+        dueDate: record_opt_to_undefined(from_candid_opt_n6(_uploadFile, _downloadFile, value.dueDate)),
+        description: record_opt_to_undefined(from_candid_opt_n7(_uploadFile, _downloadFile, value.description)),
+        isArchived: value.isArchived,
         projectId: value.projectId,
-        assignedUserId: record_opt_to_undefined(from_candid_opt_n6(_uploadFile, _downloadFile, value.assignedUserId)),
-        columnId: value.columnId
+        assignedUserId: record_opt_to_undefined(from_candid_opt_n8(_uploadFile, _downloadFile, value.assignedUserId)),
+        swimlaneId: record_opt_to_undefined(from_candid_opt_n8(_uploadFile, _downloadFile, value.swimlaneId)),
+        columnId: value.columnId,
+        archivedAt: record_opt_to_undefined(from_candid_opt_n6(_uploadFile, _downloadFile, value.archivedAt))
     };
 }
 function from_candid_vec_n12(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: Array<_FilterPreset>): Array<FilterPreset> {
     return value.map((x)=>from_candid_FilterPreset_n13(_uploadFile, _downloadFile, x));
 }
-function from_candid_vec_n3(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: Array<_Revision>): Array<Revision> {
-    return value.map((x)=>from_candid_Revision_n4(_uploadFile, _downloadFile, x));
+function from_candid_vec_n15(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: Array<_User>): Array<User> {
+    return value.map((x)=>from_candid_User_n16(_uploadFile, _downloadFile, x));
 }
-function from_candid_vec_n7(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: Array<_Card>): Array<Card> {
-    return value.map((x)=>from_candid_Card_n8(_uploadFile, _downloadFile, x));
+function from_candid_vec_n3(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: Array<_Card>): Array<Card> {
+    return value.map((x)=>from_candid_Card_n4(_uploadFile, _downloadFile, x));
+}
+function from_candid_vec_n9(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: Array<_Revision>): Array<Revision> {
+    return value.map((x)=>from_candid_Revision_n10(_uploadFile, _downloadFile, x));
 }
 function to_candid_opt_n1(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: bigint | null): [] | [bigint] {
     return value === null ? candid_none() : candid_some(value);
 }
-function to_candid_opt_n15(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: bigint | null): [] | [bigint] {
+function to_candid_opt_n18(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: bigint | null): [] | [bigint] {
     return value === null ? candid_none() : candid_some(value);
 }
 function to_candid_opt_n2(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: string | null): [] | [string] {

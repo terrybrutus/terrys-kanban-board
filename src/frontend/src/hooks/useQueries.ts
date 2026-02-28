@@ -1,11 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   Card,
+  ChecklistItem,
   ColumnView,
   Comment,
   FilterPreset,
   Project,
+  ProjectSummary,
   Revision,
+  Swimlane,
   Tag,
 } from "../backend.d";
 import { useActor } from "./useActor";
@@ -15,6 +18,7 @@ export interface User {
   name: string;
   isAdmin: boolean;
   isMasterAdmin: boolean;
+  securityQuestion?: string;
 }
 
 // ─── Project hooks ─────────────────────────────────────────────────────────────
@@ -504,6 +508,7 @@ export function useUsers() {
         name: u.name,
         isAdmin: u.isAdmin,
         isMasterAdmin: u.isMasterAdmin,
+        securityQuestion: u.securityQuestion,
       }));
     },
     enabled: !!actor && !isFetching,
@@ -993,5 +998,479 @@ export function useMoveCards() {
         queryClient.invalidateQueries({ queryKey: ["revisions"] });
       }
     },
+  });
+}
+
+// ─── Swimlane hooks ───────────────────────────────────────────────────────────
+
+export function useSwimlanes(projectId: bigint | null) {
+  const { actor, isFetching } = useActor();
+  return useQuery<Swimlane[]>({
+    queryKey: ["swimlanes", projectId?.toString() ?? "none"],
+    queryFn: async () => {
+      if (!actor || projectId === null) return [];
+      return actor.getSwimlanes(projectId);
+    },
+    enabled: !!actor && !isFetching && projectId !== null,
+  });
+}
+
+export function useCreateSwimlane() {
+  const { actor } = useActor();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      projectId,
+      name,
+      actorUserId,
+    }: {
+      projectId: bigint;
+      name: string;
+      actorUserId: bigint;
+    }): Promise<bigint> => {
+      if (!actor) throw new Error("No actor");
+      return actor.createSwimlane(projectId, name, actorUserId);
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["swimlanes", variables.projectId.toString()],
+      });
+    },
+  });
+}
+
+export function useRenameSwimlane() {
+  const { actor } = useActor();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      swimlaneId,
+      newName,
+      actorUserId,
+      projectId: _projectId,
+    }: {
+      swimlaneId: bigint;
+      newName: string;
+      actorUserId: bigint;
+      projectId: bigint;
+    }): Promise<void> => {
+      if (!actor) throw new Error("No actor");
+      return actor.renameSwimlane(swimlaneId, newName, actorUserId);
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["swimlanes", variables.projectId.toString()],
+      });
+    },
+  });
+}
+
+export function useDeleteSwimlane() {
+  const { actor } = useActor();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      swimlaneId,
+      actorUserId,
+      projectId: _projectId,
+    }: {
+      swimlaneId: bigint;
+      actorUserId: bigint;
+      projectId: bigint;
+    }): Promise<void> => {
+      if (!actor) throw new Error("No actor");
+      return actor.deleteSwimlane(swimlaneId, actorUserId);
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["swimlanes", variables.projectId.toString()],
+      });
+      queryClient.invalidateQueries({ queryKey: ["cards"] });
+    },
+  });
+}
+
+export function useReorderSwimlanes() {
+  const { actor } = useActor();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      newOrder,
+      actorUserId,
+      projectId: _projectId,
+    }: {
+      newOrder: bigint[];
+      actorUserId: bigint;
+      projectId: bigint;
+    }): Promise<void> => {
+      if (!actor) throw new Error("No actor");
+      return actor.reorderSwimlanes(newOrder, actorUserId);
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["swimlanes", variables.projectId.toString()],
+      });
+    },
+  });
+}
+
+export function useEnableSwimlanes() {
+  const { actor } = useActor();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      projectId,
+      actorUserId,
+    }: { projectId: bigint; actorUserId: bigint }): Promise<void> => {
+      if (!actor) throw new Error("No actor");
+      return actor.enableSwimlanes(projectId, actorUserId);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["projects"] });
+      queryClient.invalidateQueries({ queryKey: ["swimlanes"] });
+    },
+  });
+}
+
+export function useDisableSwimlanes() {
+  const { actor } = useActor();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      projectId,
+      actorUserId,
+    }: { projectId: bigint; actorUserId: bigint }): Promise<void> => {
+      if (!actor) throw new Error("No actor");
+      return actor.disableSwimlanes(projectId, actorUserId);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["projects"] });
+    },
+  });
+}
+
+export function useUpdateCardSwimlane() {
+  const { actor } = useActor();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      cardId,
+      swimlaneId,
+      actorUserId,
+      projectId: _projectId,
+    }: {
+      cardId: bigint;
+      swimlaneId: bigint | null;
+      actorUserId: bigint;
+      projectId?: bigint;
+    }): Promise<void> => {
+      if (!actor) throw new Error("No actor");
+      return actor.updateCardSwimlane(cardId, swimlaneId, actorUserId);
+    },
+    onSuccess: (_data, variables) => {
+      if (variables.projectId) {
+        queryClient.invalidateQueries({
+          queryKey: ["cards", variables.projectId.toString()],
+        });
+      } else {
+        queryClient.invalidateQueries({ queryKey: ["cards"] });
+      }
+    },
+  });
+}
+
+// ─── Rename user hook ─────────────────────────────────────────────────────────
+
+export function useRenameUser() {
+  const { actor } = useActor();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      userId,
+      newName,
+      actorUserId,
+    }: {
+      userId: bigint;
+      newName: string;
+      actorUserId: bigint;
+    }): Promise<void> => {
+      if (!actor) throw new Error("No actor");
+      return actor.renameUser(userId, newName, actorUserId);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+    },
+  });
+}
+
+// ─── Security question hooks ──────────────────────────────────────────────────
+
+export function useSetMasterAdminSecurityQuestion() {
+  const { actor } = useActor();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      question,
+      answerHash,
+      actorUserId,
+    }: {
+      question: string;
+      answerHash: string;
+      actorUserId: bigint;
+    }): Promise<void> => {
+      if (!actor) throw new Error("No actor");
+      return actor.setMasterAdminSecurityQuestion(
+        question,
+        answerHash,
+        actorUserId,
+      );
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+    },
+  });
+}
+
+export function useResetMasterAdminPinWithSecurityAnswer() {
+  const { actor } = useActor();
+  return useMutation({
+    mutationFn: async ({
+      answerHash,
+      newPinHash,
+    }: { answerHash: string; newPinHash: string }): Promise<boolean> => {
+      if (!actor) throw new Error("No actor");
+      return actor.resetMasterAdminPinWithSecurityAnswer(
+        answerHash,
+        newPinHash,
+      );
+    },
+  });
+}
+
+// ─── Checklist hooks ──────────────────────────────────────────────────────────
+
+export function useChecklistItems(cardId: bigint | null) {
+  const { actor, isFetching } = useActor();
+  return useQuery<ChecklistItem[]>({
+    queryKey: ["checklist", cardId?.toString() ?? "none"],
+    queryFn: async () => {
+      if (!actor || cardId === null) return [];
+      return actor.getChecklistItems(cardId);
+    },
+    enabled: !!actor && !isFetching && cardId !== null,
+  });
+}
+
+export function useAddChecklistItem() {
+  const { actor } = useActor();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      cardId,
+      text,
+      actorUserId,
+    }: {
+      cardId: bigint;
+      text: string;
+      actorUserId: bigint;
+    }): Promise<bigint> => {
+      if (!actor) throw new Error("No actor");
+      return actor.addChecklistItem(cardId, text, actorUserId);
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["checklist", variables.cardId.toString()],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["cardRevisions", variables.cardId.toString()],
+      });
+    },
+  });
+}
+
+export function useUpdateChecklistItem() {
+  const { actor } = useActor();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      itemId,
+      text,
+      isDone,
+      actorUserId,
+      cardId: _cardId,
+    }: {
+      itemId: bigint;
+      text: string;
+      isDone: boolean;
+      actorUserId: bigint;
+      cardId: bigint;
+    }): Promise<void> => {
+      if (!actor) throw new Error("No actor");
+      return actor.updateChecklistItem(itemId, text, isDone, actorUserId);
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["checklist", variables.cardId.toString()],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["cardRevisions", variables.cardId.toString()],
+      });
+    },
+  });
+}
+
+export function useDeleteChecklistItem() {
+  const { actor } = useActor();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      itemId,
+      actorUserId,
+      cardId: _cardId,
+    }: {
+      itemId: bigint;
+      actorUserId: bigint;
+      cardId: bigint;
+    }): Promise<void> => {
+      if (!actor) throw new Error("No actor");
+      return actor.deleteChecklistItem(itemId, actorUserId);
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["checklist", variables.cardId.toString()],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["cardRevisions", variables.cardId.toString()],
+      });
+    },
+  });
+}
+
+export function useReorderChecklistItems() {
+  const { actor } = useActor();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      cardId,
+      newOrder,
+      actorUserId,
+    }: {
+      cardId: bigint;
+      newOrder: bigint[];
+      actorUserId: bigint;
+    }): Promise<void> => {
+      if (!actor) throw new Error("No actor");
+      return actor.reorderChecklistItems(cardId, newOrder, actorUserId);
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["checklist", variables.cardId.toString()],
+      });
+    },
+  });
+}
+
+// ─── Archive hooks ────────────────────────────────────────────────────────────
+
+export function useArchiveCard() {
+  const { actor } = useActor();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      cardId,
+      actorUserId,
+      projectId: _projectId,
+    }: {
+      cardId: bigint;
+      actorUserId: bigint;
+      projectId?: bigint;
+    }): Promise<void> => {
+      if (!actor) throw new Error("No actor");
+      return actor.archiveCard(cardId, actorUserId);
+    },
+    onSuccess: (_data, variables) => {
+      if (variables.projectId) {
+        queryClient.invalidateQueries({
+          queryKey: ["cards", variables.projectId.toString()],
+        });
+        queryClient.invalidateQueries({
+          queryKey: ["columns", variables.projectId.toString()],
+        });
+        queryClient.invalidateQueries({
+          queryKey: ["archivedCards", variables.projectId.toString()],
+        });
+        queryClient.invalidateQueries({ queryKey: ["cardRevisions"] });
+      } else {
+        queryClient.invalidateQueries({ queryKey: ["cards"] });
+        queryClient.invalidateQueries({ queryKey: ["columns"] });
+        queryClient.invalidateQueries({ queryKey: ["archivedCards"] });
+        queryClient.invalidateQueries({ queryKey: ["cardRevisions"] });
+      }
+    },
+  });
+}
+
+export function useRestoreCard() {
+  const { actor } = useActor();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      cardId,
+      actorUserId,
+      projectId: _projectId,
+    }: {
+      cardId: bigint;
+      actorUserId: bigint;
+      projectId?: bigint;
+    }): Promise<void> => {
+      if (!actor) throw new Error("No actor");
+      return actor.restoreCard(cardId, actorUserId);
+    },
+    onSuccess: (_data, variables) => {
+      if (variables.projectId) {
+        queryClient.invalidateQueries({
+          queryKey: ["cards", variables.projectId.toString()],
+        });
+        queryClient.invalidateQueries({
+          queryKey: ["columns", variables.projectId.toString()],
+        });
+        queryClient.invalidateQueries({
+          queryKey: ["archivedCards", variables.projectId.toString()],
+        });
+        queryClient.invalidateQueries({ queryKey: ["cardRevisions"] });
+      } else {
+        queryClient.invalidateQueries({ queryKey: ["cards"] });
+        queryClient.invalidateQueries({ queryKey: ["columns"] });
+        queryClient.invalidateQueries({ queryKey: ["archivedCards"] });
+        queryClient.invalidateQueries({ queryKey: ["cardRevisions"] });
+      }
+    },
+  });
+}
+
+export function useArchivedCards(projectId: bigint | null) {
+  const { actor, isFetching } = useActor();
+  return useQuery<Card[]>({
+    queryKey: ["archivedCards", projectId?.toString() ?? "none"],
+    queryFn: async () => {
+      if (!actor || projectId === null) return [];
+      return actor.getArchivedCards(projectId);
+    },
+    enabled: !!actor && !isFetching && projectId !== null,
+  });
+}
+
+// ─── Project summary hook ─────────────────────────────────────────────────────
+
+export function useProjectSummary(projectId: bigint | null) {
+  const { actor, isFetching } = useActor();
+  return useQuery<ProjectSummary | null>({
+    queryKey: ["projectSummary", projectId?.toString() ?? "none"],
+    queryFn: async () => {
+      if (!actor || projectId === null) return null;
+      return actor.getProjectSummary(projectId);
+    },
+    enabled: !!actor && !isFetching && projectId !== null,
+    refetchInterval: 30_000,
   });
 }

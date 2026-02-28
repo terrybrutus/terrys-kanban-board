@@ -17,9 +17,20 @@ export interface Card {
   'tags' : Array<bigint>,
   'dueDate' : [] | [bigint],
   'description' : [] | [string],
+  'isArchived' : boolean,
   'projectId' : bigint,
   'assignedUserId' : [] | [bigint],
+  'swimlaneId' : [] | [bigint],
   'columnId' : bigint,
+  'archivedAt' : [] | [bigint],
+}
+export interface ChecklistItem {
+  'id' : bigint,
+  'order' : bigint,
+  'createdAt' : bigint,
+  'text' : string,
+  'isDone' : boolean,
+  'cardId' : bigint,
 }
 export interface ColumnView {
   'id' : bigint,
@@ -48,7 +59,18 @@ export interface FilterPreset {
   'dateFrom' : string,
   'dateField' : [] | [string],
 }
-export interface Project { 'id' : bigint, 'name' : string }
+export interface Project {
+  'id' : bigint,
+  'name' : string,
+  'swimlanesEnabled' : boolean,
+}
+export interface ProjectSummary {
+  'unassignedCount' : bigint,
+  'totalCards' : bigint,
+  'overdueCount' : bigint,
+  'dueSoonCount' : bigint,
+  'tagCounts' : Array<[bigint, bigint]>,
+}
 export interface Revision {
   'id' : bigint,
   'actorName' : string,
@@ -57,6 +79,12 @@ export interface Revision {
   'timestamp' : bigint,
   'cardId' : [] | [bigint],
   'revisionType' : string,
+}
+export interface Swimlane {
+  'id' : bigint,
+  'order' : bigint,
+  'name' : string,
+  'projectId' : bigint,
 }
 export interface Tag {
   'id' : bigint,
@@ -68,11 +96,15 @@ export interface User {
   'id' : bigint,
   'isMasterAdmin' : boolean,
   'name' : string,
+  'securityQuestion' : [] | [string],
   'pinHash' : string,
   'isAdmin' : boolean,
+  'securityAnswerHash' : [] | [string],
 }
 export interface _SERVICE {
+  'addChecklistItem' : ActorMethod<[bigint, string, bigint], bigint>,
   'addComment' : ActorMethod<[bigint, string, bigint], bigint>,
+  'archiveCard' : ActorMethod<[bigint, bigint], undefined>,
   'assignCard' : ActorMethod<[bigint, [] | [bigint], bigint], undefined>,
   'changeUserPin' : ActorMethod<[bigint, string, string], undefined>,
   'clearRevisions' : ActorMethod<[], undefined>,
@@ -82,24 +114,33 @@ export interface _SERVICE {
   >,
   'createColumn' : ActorMethod<[string, bigint, bigint], bigint>,
   'createProject' : ActorMethod<[string, bigint], bigint>,
+  'createSwimlane' : ActorMethod<[bigint, string, bigint], bigint>,
   'createTag' : ActorMethod<[bigint, string, string, bigint], bigint>,
   'createUser' : ActorMethod<[string, string], bigint>,
   'deleteCard' : ActorMethod<[bigint, bigint], undefined>,
+  'deleteChecklistItem' : ActorMethod<[bigint, bigint], undefined>,
   'deleteColumn' : ActorMethod<[bigint, bigint], undefined>,
   'deleteComment' : ActorMethod<[bigint, bigint], undefined>,
   'deleteFilterPreset' : ActorMethod<[bigint, bigint], undefined>,
   'deleteProject' : ActorMethod<[bigint, bigint], undefined>,
+  'deleteSwimlane' : ActorMethod<[bigint, bigint], undefined>,
   'deleteTag' : ActorMethod<[bigint, bigint], undefined>,
   'deleteUser' : ActorMethod<[bigint, bigint], undefined>,
   'demoteUser' : ActorMethod<[bigint, bigint], undefined>,
+  'disableSwimlanes' : ActorMethod<[bigint, bigint], undefined>,
+  'enableSwimlanes' : ActorMethod<[bigint, bigint], undefined>,
+  'getArchivedCards' : ActorMethod<[bigint], Array<Card>>,
   'getCardComments' : ActorMethod<[bigint], Array<Comment>>,
   'getCardRevisions' : ActorMethod<[bigint], Array<Revision>>,
   'getCards' : ActorMethod<[bigint], Array<Card>>,
+  'getChecklistItems' : ActorMethod<[bigint], Array<ChecklistItem>>,
   'getColumns' : ActorMethod<[bigint], Array<ColumnView>>,
   'getFilterPresets' : ActorMethod<[bigint], Array<FilterPreset>>,
+  'getProjectSummary' : ActorMethod<[bigint], ProjectSummary>,
   'getProjectTags' : ActorMethod<[bigint], Array<Tag>>,
   'getProjects' : ActorMethod<[], Array<Project>>,
   'getRevisions' : ActorMethod<[bigint], Array<Revision>>,
+  'getSwimlanes' : ActorMethod<[bigint], Array<Swimlane>>,
   'getUsers' : ActorMethod<[], Array<User>>,
   'initBoard' : ActorMethod<[], undefined>,
   'initDefaultProject' : ActorMethod<[], bigint>,
@@ -109,9 +150,21 @@ export interface _SERVICE {
   'promoteUser' : ActorMethod<[bigint, bigint], undefined>,
   'renameColumn' : ActorMethod<[bigint, string, bigint], undefined>,
   'renameProject' : ActorMethod<[bigint, string, bigint], undefined>,
+  'renameSwimlane' : ActorMethod<[bigint, string, bigint], undefined>,
   'renameTag' : ActorMethod<[bigint, string, bigint], undefined>,
+  'renameUser' : ActorMethod<[bigint, string, bigint], undefined>,
+  'reorderChecklistItems' : ActorMethod<
+    [bigint, Array<bigint>, bigint],
+    undefined
+  >,
   'reorderColumns' : ActorMethod<[Array<bigint>, bigint], undefined>,
+  'reorderSwimlanes' : ActorMethod<[Array<bigint>, bigint], undefined>,
+  'resetMasterAdminPinWithSecurityAnswer' : ActorMethod<
+    [string, string],
+    boolean
+  >,
   'resetUserPin' : ActorMethod<[bigint, bigint, string], undefined>,
+  'restoreCard' : ActorMethod<[bigint, bigint], undefined>,
   'saveFilterPreset' : ActorMethod<
     [
       bigint,
@@ -127,13 +180,25 @@ export interface _SERVICE {
     ],
     bigint
   >,
+  'setMasterAdminSecurityQuestion' : ActorMethod<
+    [string, string, bigint],
+    undefined
+  >,
   'setupMasterAdmin' : ActorMethod<[string, string], bigint>,
   'updateCard' : ActorMethod<
     [bigint, string, [] | [string], bigint],
     undefined
   >,
   'updateCardDueDate' : ActorMethod<[bigint, [] | [bigint], bigint], undefined>,
+  'updateCardSwimlane' : ActorMethod<
+    [bigint, [] | [bigint], bigint],
+    undefined
+  >,
   'updateCardTags' : ActorMethod<[bigint, Array<bigint>, bigint], undefined>,
+  'updateChecklistItem' : ActorMethod<
+    [bigint, string, boolean, bigint],
+    undefined
+  >,
   'verifyPin' : ActorMethod<[bigint, string], boolean>,
 }
 export declare const idlService: IDL.ServiceClass;

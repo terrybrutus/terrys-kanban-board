@@ -8,6 +8,20 @@
 
 import { IDL } from '@icp-sdk/core/candid';
 
+export const Card = IDL.Record({
+  'id' : IDL.Nat,
+  'title' : IDL.Text,
+  'createdAt' : IDL.Int,
+  'tags' : IDL.Vec(IDL.Nat),
+  'dueDate' : IDL.Opt(IDL.Int),
+  'description' : IDL.Opt(IDL.Text),
+  'isArchived' : IDL.Bool,
+  'projectId' : IDL.Nat,
+  'assignedUserId' : IDL.Opt(IDL.Nat),
+  'swimlaneId' : IDL.Opt(IDL.Nat),
+  'columnId' : IDL.Nat,
+  'archivedAt' : IDL.Opt(IDL.Int),
+});
 export const Comment = IDL.Record({
   'id' : IDL.Nat,
   'authorId' : IDL.Nat,
@@ -25,16 +39,13 @@ export const Revision = IDL.Record({
   'cardId' : IDL.Opt(IDL.Nat),
   'revisionType' : IDL.Text,
 });
-export const Card = IDL.Record({
+export const ChecklistItem = IDL.Record({
   'id' : IDL.Nat,
-  'title' : IDL.Text,
+  'order' : IDL.Nat,
   'createdAt' : IDL.Int,
-  'tags' : IDL.Vec(IDL.Nat),
-  'dueDate' : IDL.Opt(IDL.Int),
-  'description' : IDL.Opt(IDL.Text),
-  'projectId' : IDL.Nat,
-  'assignedUserId' : IDL.Opt(IDL.Nat),
-  'columnId' : IDL.Nat,
+  'text' : IDL.Text,
+  'isDone' : IDL.Bool,
+  'cardId' : IDL.Nat,
 });
 export const ColumnView = IDL.Record({
   'id' : IDL.Nat,
@@ -55,23 +66,44 @@ export const FilterPreset = IDL.Record({
   'dateFrom' : IDL.Text,
   'dateField' : IDL.Opt(IDL.Text),
 });
+export const ProjectSummary = IDL.Record({
+  'unassignedCount' : IDL.Nat,
+  'totalCards' : IDL.Nat,
+  'overdueCount' : IDL.Nat,
+  'dueSoonCount' : IDL.Nat,
+  'tagCounts' : IDL.Vec(IDL.Tuple(IDL.Nat, IDL.Nat)),
+});
 export const Tag = IDL.Record({
   'id' : IDL.Nat,
   'name' : IDL.Text,
   'color' : IDL.Text,
   'projectId' : IDL.Nat,
 });
-export const Project = IDL.Record({ 'id' : IDL.Nat, 'name' : IDL.Text });
+export const Project = IDL.Record({
+  'id' : IDL.Nat,
+  'name' : IDL.Text,
+  'swimlanesEnabled' : IDL.Bool,
+});
+export const Swimlane = IDL.Record({
+  'id' : IDL.Nat,
+  'order' : IDL.Nat,
+  'name' : IDL.Text,
+  'projectId' : IDL.Nat,
+});
 export const User = IDL.Record({
   'id' : IDL.Nat,
   'isMasterAdmin' : IDL.Bool,
   'name' : IDL.Text,
+  'securityQuestion' : IDL.Opt(IDL.Text),
   'pinHash' : IDL.Text,
   'isAdmin' : IDL.Bool,
+  'securityAnswerHash' : IDL.Opt(IDL.Text),
 });
 
 export const idlService = IDL.Service({
+  'addChecklistItem' : IDL.Func([IDL.Nat, IDL.Text, IDL.Nat], [IDL.Nat], []),
   'addComment' : IDL.Func([IDL.Nat, IDL.Text, IDL.Nat], [IDL.Nat], []),
+  'archiveCard' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
   'assignCard' : IDL.Func([IDL.Nat, IDL.Opt(IDL.Nat), IDL.Nat], [], []),
   'changeUserPin' : IDL.Func([IDL.Nat, IDL.Text, IDL.Text], [], []),
   'clearRevisions' : IDL.Func([], [], []),
@@ -82,24 +114,37 @@ export const idlService = IDL.Service({
     ),
   'createColumn' : IDL.Func([IDL.Text, IDL.Nat, IDL.Nat], [IDL.Nat], []),
   'createProject' : IDL.Func([IDL.Text, IDL.Nat], [IDL.Nat], []),
+  'createSwimlane' : IDL.Func([IDL.Nat, IDL.Text, IDL.Nat], [IDL.Nat], []),
   'createTag' : IDL.Func([IDL.Nat, IDL.Text, IDL.Text, IDL.Nat], [IDL.Nat], []),
   'createUser' : IDL.Func([IDL.Text, IDL.Text], [IDL.Nat], []),
   'deleteCard' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
+  'deleteChecklistItem' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
   'deleteColumn' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
   'deleteComment' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
   'deleteFilterPreset' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
   'deleteProject' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
+  'deleteSwimlane' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
   'deleteTag' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
   'deleteUser' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
   'demoteUser' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
+  'disableSwimlanes' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
+  'enableSwimlanes' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
+  'getArchivedCards' : IDL.Func([IDL.Nat], [IDL.Vec(Card)], ['query']),
   'getCardComments' : IDL.Func([IDL.Nat], [IDL.Vec(Comment)], ['query']),
   'getCardRevisions' : IDL.Func([IDL.Nat], [IDL.Vec(Revision)], ['query']),
   'getCards' : IDL.Func([IDL.Nat], [IDL.Vec(Card)], ['query']),
+  'getChecklistItems' : IDL.Func(
+      [IDL.Nat],
+      [IDL.Vec(ChecklistItem)],
+      ['query'],
+    ),
   'getColumns' : IDL.Func([IDL.Nat], [IDL.Vec(ColumnView)], ['query']),
   'getFilterPresets' : IDL.Func([IDL.Nat], [IDL.Vec(FilterPreset)], ['query']),
+  'getProjectSummary' : IDL.Func([IDL.Nat], [ProjectSummary], ['query']),
   'getProjectTags' : IDL.Func([IDL.Nat], [IDL.Vec(Tag)], ['query']),
   'getProjects' : IDL.Func([], [IDL.Vec(Project)], ['query']),
   'getRevisions' : IDL.Func([IDL.Nat], [IDL.Vec(Revision)], ['query']),
+  'getSwimlanes' : IDL.Func([IDL.Nat], [IDL.Vec(Swimlane)], ['query']),
   'getUsers' : IDL.Func([], [IDL.Vec(User)], ['query']),
   'initBoard' : IDL.Func([], [], []),
   'initDefaultProject' : IDL.Func([], [IDL.Nat], []),
@@ -109,9 +154,23 @@ export const idlService = IDL.Service({
   'promoteUser' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
   'renameColumn' : IDL.Func([IDL.Nat, IDL.Text, IDL.Nat], [], []),
   'renameProject' : IDL.Func([IDL.Nat, IDL.Text, IDL.Nat], [], []),
+  'renameSwimlane' : IDL.Func([IDL.Nat, IDL.Text, IDL.Nat], [], []),
   'renameTag' : IDL.Func([IDL.Nat, IDL.Text, IDL.Nat], [], []),
+  'renameUser' : IDL.Func([IDL.Nat, IDL.Text, IDL.Nat], [], []),
+  'reorderChecklistItems' : IDL.Func(
+      [IDL.Nat, IDL.Vec(IDL.Nat), IDL.Nat],
+      [],
+      [],
+    ),
   'reorderColumns' : IDL.Func([IDL.Vec(IDL.Nat), IDL.Nat], [], []),
+  'reorderSwimlanes' : IDL.Func([IDL.Vec(IDL.Nat), IDL.Nat], [], []),
+  'resetMasterAdminPinWithSecurityAnswer' : IDL.Func(
+      [IDL.Text, IDL.Text],
+      [IDL.Bool],
+      [],
+    ),
   'resetUserPin' : IDL.Func([IDL.Nat, IDL.Nat, IDL.Text], [], []),
+  'restoreCard' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
   'saveFilterPreset' : IDL.Func(
       [
         IDL.Nat,
@@ -128,6 +187,11 @@ export const idlService = IDL.Service({
       [IDL.Nat],
       [],
     ),
+  'setMasterAdminSecurityQuestion' : IDL.Func(
+      [IDL.Text, IDL.Text, IDL.Nat],
+      [],
+      [],
+    ),
   'setupMasterAdmin' : IDL.Func([IDL.Text, IDL.Text], [IDL.Nat], []),
   'updateCard' : IDL.Func(
       [IDL.Nat, IDL.Text, IDL.Opt(IDL.Text), IDL.Nat],
@@ -135,13 +199,33 @@ export const idlService = IDL.Service({
       [],
     ),
   'updateCardDueDate' : IDL.Func([IDL.Nat, IDL.Opt(IDL.Int), IDL.Nat], [], []),
+  'updateCardSwimlane' : IDL.Func([IDL.Nat, IDL.Opt(IDL.Nat), IDL.Nat], [], []),
   'updateCardTags' : IDL.Func([IDL.Nat, IDL.Vec(IDL.Nat), IDL.Nat], [], []),
+  'updateChecklistItem' : IDL.Func(
+      [IDL.Nat, IDL.Text, IDL.Bool, IDL.Nat],
+      [],
+      [],
+    ),
   'verifyPin' : IDL.Func([IDL.Nat, IDL.Text], [IDL.Bool], ['query']),
 });
 
 export const idlInitArgs = [];
 
 export const idlFactory = ({ IDL }) => {
+  const Card = IDL.Record({
+    'id' : IDL.Nat,
+    'title' : IDL.Text,
+    'createdAt' : IDL.Int,
+    'tags' : IDL.Vec(IDL.Nat),
+    'dueDate' : IDL.Opt(IDL.Int),
+    'description' : IDL.Opt(IDL.Text),
+    'isArchived' : IDL.Bool,
+    'projectId' : IDL.Nat,
+    'assignedUserId' : IDL.Opt(IDL.Nat),
+    'swimlaneId' : IDL.Opt(IDL.Nat),
+    'columnId' : IDL.Nat,
+    'archivedAt' : IDL.Opt(IDL.Int),
+  });
   const Comment = IDL.Record({
     'id' : IDL.Nat,
     'authorId' : IDL.Nat,
@@ -159,16 +243,13 @@ export const idlFactory = ({ IDL }) => {
     'cardId' : IDL.Opt(IDL.Nat),
     'revisionType' : IDL.Text,
   });
-  const Card = IDL.Record({
+  const ChecklistItem = IDL.Record({
     'id' : IDL.Nat,
-    'title' : IDL.Text,
+    'order' : IDL.Nat,
     'createdAt' : IDL.Int,
-    'tags' : IDL.Vec(IDL.Nat),
-    'dueDate' : IDL.Opt(IDL.Int),
-    'description' : IDL.Opt(IDL.Text),
-    'projectId' : IDL.Nat,
-    'assignedUserId' : IDL.Opt(IDL.Nat),
-    'columnId' : IDL.Nat,
+    'text' : IDL.Text,
+    'isDone' : IDL.Bool,
+    'cardId' : IDL.Nat,
   });
   const ColumnView = IDL.Record({
     'id' : IDL.Nat,
@@ -189,23 +270,44 @@ export const idlFactory = ({ IDL }) => {
     'dateFrom' : IDL.Text,
     'dateField' : IDL.Opt(IDL.Text),
   });
+  const ProjectSummary = IDL.Record({
+    'unassignedCount' : IDL.Nat,
+    'totalCards' : IDL.Nat,
+    'overdueCount' : IDL.Nat,
+    'dueSoonCount' : IDL.Nat,
+    'tagCounts' : IDL.Vec(IDL.Tuple(IDL.Nat, IDL.Nat)),
+  });
   const Tag = IDL.Record({
     'id' : IDL.Nat,
     'name' : IDL.Text,
     'color' : IDL.Text,
     'projectId' : IDL.Nat,
   });
-  const Project = IDL.Record({ 'id' : IDL.Nat, 'name' : IDL.Text });
+  const Project = IDL.Record({
+    'id' : IDL.Nat,
+    'name' : IDL.Text,
+    'swimlanesEnabled' : IDL.Bool,
+  });
+  const Swimlane = IDL.Record({
+    'id' : IDL.Nat,
+    'order' : IDL.Nat,
+    'name' : IDL.Text,
+    'projectId' : IDL.Nat,
+  });
   const User = IDL.Record({
     'id' : IDL.Nat,
     'isMasterAdmin' : IDL.Bool,
     'name' : IDL.Text,
+    'securityQuestion' : IDL.Opt(IDL.Text),
     'pinHash' : IDL.Text,
     'isAdmin' : IDL.Bool,
+    'securityAnswerHash' : IDL.Opt(IDL.Text),
   });
   
   return IDL.Service({
+    'addChecklistItem' : IDL.Func([IDL.Nat, IDL.Text, IDL.Nat], [IDL.Nat], []),
     'addComment' : IDL.Func([IDL.Nat, IDL.Text, IDL.Nat], [IDL.Nat], []),
+    'archiveCard' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
     'assignCard' : IDL.Func([IDL.Nat, IDL.Opt(IDL.Nat), IDL.Nat], [], []),
     'changeUserPin' : IDL.Func([IDL.Nat, IDL.Text, IDL.Text], [], []),
     'clearRevisions' : IDL.Func([], [], []),
@@ -216,6 +318,7 @@ export const idlFactory = ({ IDL }) => {
       ),
     'createColumn' : IDL.Func([IDL.Text, IDL.Nat, IDL.Nat], [IDL.Nat], []),
     'createProject' : IDL.Func([IDL.Text, IDL.Nat], [IDL.Nat], []),
+    'createSwimlane' : IDL.Func([IDL.Nat, IDL.Text, IDL.Nat], [IDL.Nat], []),
     'createTag' : IDL.Func(
         [IDL.Nat, IDL.Text, IDL.Text, IDL.Nat],
         [IDL.Nat],
@@ -223,25 +326,37 @@ export const idlFactory = ({ IDL }) => {
       ),
     'createUser' : IDL.Func([IDL.Text, IDL.Text], [IDL.Nat], []),
     'deleteCard' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
+    'deleteChecklistItem' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
     'deleteColumn' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
     'deleteComment' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
     'deleteFilterPreset' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
     'deleteProject' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
+    'deleteSwimlane' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
     'deleteTag' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
     'deleteUser' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
     'demoteUser' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
+    'disableSwimlanes' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
+    'enableSwimlanes' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
+    'getArchivedCards' : IDL.Func([IDL.Nat], [IDL.Vec(Card)], ['query']),
     'getCardComments' : IDL.Func([IDL.Nat], [IDL.Vec(Comment)], ['query']),
     'getCardRevisions' : IDL.Func([IDL.Nat], [IDL.Vec(Revision)], ['query']),
     'getCards' : IDL.Func([IDL.Nat], [IDL.Vec(Card)], ['query']),
+    'getChecklistItems' : IDL.Func(
+        [IDL.Nat],
+        [IDL.Vec(ChecklistItem)],
+        ['query'],
+      ),
     'getColumns' : IDL.Func([IDL.Nat], [IDL.Vec(ColumnView)], ['query']),
     'getFilterPresets' : IDL.Func(
         [IDL.Nat],
         [IDL.Vec(FilterPreset)],
         ['query'],
       ),
+    'getProjectSummary' : IDL.Func([IDL.Nat], [ProjectSummary], ['query']),
     'getProjectTags' : IDL.Func([IDL.Nat], [IDL.Vec(Tag)], ['query']),
     'getProjects' : IDL.Func([], [IDL.Vec(Project)], ['query']),
     'getRevisions' : IDL.Func([IDL.Nat], [IDL.Vec(Revision)], ['query']),
+    'getSwimlanes' : IDL.Func([IDL.Nat], [IDL.Vec(Swimlane)], ['query']),
     'getUsers' : IDL.Func([], [IDL.Vec(User)], ['query']),
     'initBoard' : IDL.Func([], [], []),
     'initDefaultProject' : IDL.Func([], [IDL.Nat], []),
@@ -251,9 +366,23 @@ export const idlFactory = ({ IDL }) => {
     'promoteUser' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
     'renameColumn' : IDL.Func([IDL.Nat, IDL.Text, IDL.Nat], [], []),
     'renameProject' : IDL.Func([IDL.Nat, IDL.Text, IDL.Nat], [], []),
+    'renameSwimlane' : IDL.Func([IDL.Nat, IDL.Text, IDL.Nat], [], []),
     'renameTag' : IDL.Func([IDL.Nat, IDL.Text, IDL.Nat], [], []),
+    'renameUser' : IDL.Func([IDL.Nat, IDL.Text, IDL.Nat], [], []),
+    'reorderChecklistItems' : IDL.Func(
+        [IDL.Nat, IDL.Vec(IDL.Nat), IDL.Nat],
+        [],
+        [],
+      ),
     'reorderColumns' : IDL.Func([IDL.Vec(IDL.Nat), IDL.Nat], [], []),
+    'reorderSwimlanes' : IDL.Func([IDL.Vec(IDL.Nat), IDL.Nat], [], []),
+    'resetMasterAdminPinWithSecurityAnswer' : IDL.Func(
+        [IDL.Text, IDL.Text],
+        [IDL.Bool],
+        [],
+      ),
     'resetUserPin' : IDL.Func([IDL.Nat, IDL.Nat, IDL.Text], [], []),
+    'restoreCard' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
     'saveFilterPreset' : IDL.Func(
         [
           IDL.Nat,
@@ -270,6 +399,11 @@ export const idlFactory = ({ IDL }) => {
         [IDL.Nat],
         [],
       ),
+    'setMasterAdminSecurityQuestion' : IDL.Func(
+        [IDL.Text, IDL.Text, IDL.Nat],
+        [],
+        [],
+      ),
     'setupMasterAdmin' : IDL.Func([IDL.Text, IDL.Text], [IDL.Nat], []),
     'updateCard' : IDL.Func(
         [IDL.Nat, IDL.Text, IDL.Opt(IDL.Text), IDL.Nat],
@@ -281,7 +415,17 @@ export const idlFactory = ({ IDL }) => {
         [],
         [],
       ),
+    'updateCardSwimlane' : IDL.Func(
+        [IDL.Nat, IDL.Opt(IDL.Nat), IDL.Nat],
+        [],
+        [],
+      ),
     'updateCardTags' : IDL.Func([IDL.Nat, IDL.Vec(IDL.Nat), IDL.Nat], [], []),
+    'updateChecklistItem' : IDL.Func(
+        [IDL.Nat, IDL.Text, IDL.Bool, IDL.Nat],
+        [],
+        [],
+      ),
     'verifyPin' : IDL.Func([IDL.Nat, IDL.Text], [IDL.Bool], ['query']),
   });
 };

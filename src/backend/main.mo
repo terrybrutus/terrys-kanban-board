@@ -5,12 +5,12 @@ import Nat "mo:core/Nat";
 import Int "mo:core/Int";
 import Text "mo:core/Text";
 import Time "mo:core/Time";
-import Iter "mo:core/Iter";
 import Order "mo:core/Order";
 import Runtime "mo:core/Runtime";
-import Migration "migration";
+import Iter "mo:core/Iter";
 
-(with migration = Migration.run)
+
+
 actor {
   ///////////////////////////
   // Types
@@ -19,6 +19,7 @@ actor {
   type Project = {
     id : Nat;
     name : Text;
+    swimlanesEnabled : Bool;
   };
 
   type Column = {
@@ -43,6 +44,9 @@ actor {
     tags : [Nat];
     dueDate : ?Int;
     createdAt : Int;
+    swimlaneId : ?Nat;
+    isArchived : Bool;
+    archivedAt : ?Int;
   };
   module Card {
     public func compare(c1 : Card, c2 : Card) : Order.Order {
@@ -56,6 +60,8 @@ actor {
     pinHash : Text;
     isAdmin : Bool;
     isMasterAdmin : Bool;
+    securityQuestion : ?Text;
+    securityAnswerHash : ?Text;
   };
   module User {
     public func compare(u1 : User, u2 : User) : Order.Order {
@@ -123,6 +129,30 @@ actor {
     };
   };
 
+  type Swimlane = {
+    id : Nat;
+    projectId : Nat;
+    name : Text;
+    order : Nat;
+  };
+
+  type ChecklistItem = {
+    id : Nat;
+    cardId : Nat;
+    text : Text;
+    isDone : Bool;
+    order : Nat;
+    createdAt : Int;
+  };
+
+  type ProjectSummary = {
+    totalCards : Nat;
+    overdueCount : Nat;
+    dueSoonCount : Nat;
+    unassignedCount : Nat;
+    tagCounts : [(Nat, Nat)];
+  };
+
   ///////////////////////////
   // State
   ///////////////////////////
@@ -135,6 +165,8 @@ actor {
   let revisions = Map.empty<Nat, Revision>();
   let comments = Map.empty<Nat, Comment>();
   let filterPresets = Map.empty<Nat, FilterPreset>();
+  let swimlanes = Map.empty<Nat, Swimlane>();
+  let checklists = Map.empty<Nat, ChecklistItem>();
 
   var nextProjectId = 1;
   var nextUserId = 1;
@@ -144,6 +176,8 @@ actor {
   var nextRevisionId = 1;
   var nextCommentId = 1;
   var nextFilterPresetId = 1;
+  var nextSwimlaneId = 1;
+  var nextChecklistItemId = 1;
 
   ///////////////////////////
   // Helper Functions
@@ -223,6 +257,8 @@ actor {
       pinHash;
       isAdmin = true;
       isMasterAdmin = true;
+      securityQuestion = null;
+      securityAnswerHash = null;
     };
     users.add(userId, newUser);
     nextUserId += 1;
@@ -310,6 +346,7 @@ actor {
     let newProject : Project = {
       id = projectId;
       name;
+      swimlanesEnabled = false;
     };
     projects.add(projectId, newProject);
     nextProjectId += 1;
@@ -401,6 +438,7 @@ actor {
       let newProject : Project = {
         id = projectId;
         name = "My Board";
+        swimlanesEnabled = false;
       };
       projects.add(projectId, newProject);
       nextProjectId += 1;
@@ -428,6 +466,8 @@ actor {
       pinHash;
       isAdmin = false;
       isMasterAdmin = false;
+      securityQuestion = null;
+      securityAnswerHash = null;
     };
     users.add(userId, newUser);
     nextUserId += 1;
@@ -688,6 +728,9 @@ actor {
           tags = [];
           dueDate = null;
           createdAt = Time.now();
+          swimlaneId = null;
+          isArchived = false;
+          archivedAt = null;
         };
 
         let updatedCards = column.cardIds.clone();
@@ -841,7 +884,7 @@ actor {
 
   public query ({ caller }) func getCards(projectId : Nat) : async [Card] {
     cards.values().toArray().filter(
-      func(card) { card.projectId == projectId },
+      func(card) { card.projectId == projectId and not card.isArchived },
     ).sort();
   };
 
@@ -1220,5 +1263,304 @@ actor {
         );
       };
     };
+  };
+
+  ///////////
+  // Extensions (Simple Logic) - New
+  ///////////
+
+  public shared ({ caller }) func renameUser(userId : Nat, newName : Text, actorUserId : Nat) : async () {
+    if (actorUserId != userId and not isMasterAdmin(actorUserId)) {
+      Runtime.trap("Not authorized to rename user");
+    };
+
+    switch (users.get(userId)) {
+      case (null) { Runtime.trap("User not found") };
+      case (?user) {
+        users.add(userId, { user with name = newName });
+        logRevision(0, actorUserId, "rename_user", "User renamed to " # newName, null);
+      };
+    };
+  };
+
+  public shared ({ caller }) func setMasterAdminSecurityQuestion(
+    question : Text,
+    answerHash : Text,
+    actorUserId : Nat,
+  ) : async () {
+    if (not isMasterAdmin(actorUserId)) {
+      Runtime.trap("Only master admin can set security question");
+    };
+
+    let admin = users.values().toArray().find(func(u) { u.isMasterAdmin == true });
+    switch (admin) {
+      case (null) { Runtime.trap("Master admin not found") };
+      case (?admin) {
+        users.add(admin.id, { admin with securityQuestion = ?question; securityAnswerHash = ?answerHash });
+        logRevision(0, actorUserId, "set_security_question", "Security question set", null);
+      };
+    };
+  };
+
+  public shared ({ caller }) func resetMasterAdminPinWithSecurityAnswer(
+    answerHash : Text,
+    newPinHash : Text,
+  ) : async Bool {
+    let admin = users.values().toArray().find(func(u) { u.isMasterAdmin == true });
+    switch (admin) {
+      case (null) { Runtime.trap("Master admin not found") };
+      case (?admin) {
+        switch (admin.securityAnswerHash) {
+          case (?hash) {
+            if (hash == answerHash) {
+              users.add(admin.id, { admin with pinHash = newPinHash });
+              logRevision(0, admin.id, "reset_pin", "PIN reset with security answer", null);
+              true;
+            } else { false };
+          };
+          case (null) { false };
+        };
+      };
+    };
+  };
+
+  ///////////
+  // Swimlanes - New
+  ///////////
+  public query ({ caller }) func getSwimlanes(projectId : Nat) : async [Swimlane] {
+    let filtered = swimlanes.values().toArray().filter(
+      func(s) { s.projectId == projectId }
+    );
+    filtered;
+  };
+
+  public shared ({ caller }) func createSwimlane(
+    projectId : Nat,
+    name : Text,
+    actorUserId : Nat,
+  ) : async Nat {
+    if (not isAdmin(actorUserId)) {
+      Runtime.trap("Not authorized to create swimlane");
+    };
+    let swimlaneId = nextSwimlaneId;
+    let swimlane : Swimlane = {
+      id = swimlaneId;
+      projectId;
+      name;
+      order = swimlaneId;
+    };
+    swimlanes.add(swimlaneId, swimlane);
+    nextSwimlaneId += 1;
+    swimlaneId;
+  };
+
+  public shared ({ caller }) func renameSwimlane(swimlaneId : Nat, newName : Text, actorUserId : Nat) : async () {
+    if (not isAdmin(actorUserId)) {
+      Runtime.trap("Not authorized to rename swimlane");
+    };
+    switch (swimlanes.get(swimlaneId)) {
+      case (null) { Runtime.trap("Swimlane not found") };
+      case (?swimlane) {
+        swimlanes.add(swimlaneId, { swimlane with name = newName });
+      };
+    };
+  };
+
+  public shared ({ caller }) func deleteSwimlane(swimlaneId : Nat, actorUserId : Nat) : async () {
+    if (not isAdmin(actorUserId)) {
+      Runtime.trap("Not authorized to delete swimlane");
+    };
+    swimlanes.remove(swimlaneId);
+  };
+
+  public shared ({ caller }) func reorderSwimlanes(newOrder : [Nat], actorUserId : Nat) : async () {
+    if (not isAdmin(actorUserId)) {
+      Runtime.trap("Not authorized to reorder swimlanes");
+    };
+    var order = 0;
+    for (id in newOrder.values()) {
+      switch (swimlanes.get(id)) {
+        case (null) { Runtime.trap("Invalid swimlane id: " # id.toText()) };
+        case (?swimlane) {
+          swimlanes.add(id, { swimlane with order });
+        };
+      };
+      order += 1;
+    };
+  };
+
+  public shared ({ caller }) func enableSwimlanes(projectId : Nat, actorUserId : Nat) : async () {
+    if (not isAdmin(actorUserId)) {
+      Runtime.trap("Not authorized to enable swimlanes");
+    };
+    switch (projects.get(projectId)) {
+      case (null) { Runtime.trap("Project not found") };
+      case (?project) {
+        projects.add(projectId, { project with swimlanesEnabled = true });
+      };
+    };
+  };
+
+  public shared ({ caller }) func disableSwimlanes(projectId : Nat, actorUserId : Nat) : async () {
+    if (not isAdmin(actorUserId)) {
+      Runtime.trap("Not authorized to disable swimlanes");
+    };
+    switch (projects.get(projectId)) {
+      case (null) { Runtime.trap("Project not found") };
+      case (?project) {
+        projects.add(projectId, { project with swimlanesEnabled = false });
+      };
+    };
+  };
+
+  public shared ({ caller }) func updateCardSwimlane(cardId : Nat, swimlaneId : ?Nat, actorUserId : Nat) : async () {
+    switch (cards.get(cardId)) {
+      case (null) { Runtime.trap("Card not found") };
+      case (?card) {
+        cards.add(cardId, { card with swimlaneId });
+      };
+    };
+  };
+
+  ///////////////////////////
+  // Checklist Items - New
+  ///////////////////////////
+
+  public query ({ caller }) func getChecklistItems(cardId : Nat) : async [ChecklistItem] {
+    let filtered = checklists.values().toArray().filter(
+      func(i) { i.cardId == cardId }
+    );
+    filtered;
+  };
+
+  public shared ({ caller }) func addChecklistItem(cardId : Nat, text : Text, actorUserId : Nat) : async Nat {
+    let itemId = nextChecklistItemId;
+    let item : ChecklistItem = {
+      id = itemId;
+      cardId;
+      text;
+      isDone = false;
+      order = itemId;
+      createdAt = Time.now();
+    };
+    checklists.add(itemId, item);
+    nextChecklistItemId += 1;
+    itemId;
+  };
+
+  public shared ({ caller }) func updateChecklistItem(
+    itemId : Nat,
+    text : Text,
+    isDone : Bool,
+    actorUserId : Nat,
+  ) : async () {
+    switch (checklists.get(itemId)) {
+      case (null) { Runtime.trap("Checklist item not found") };
+      case (?item) {
+        checklists.add(itemId, { item with text; isDone });
+      };
+    };
+  };
+
+  public shared ({ caller }) func deleteChecklistItem(itemId : Nat, actorUserId : Nat) : async () {
+    checklists.remove(itemId);
+  };
+
+  public shared ({ caller }) func reorderChecklistItems(cardId : Nat, newOrder : [Nat], actorUserId : Nat) : async () {
+    var order = 0;
+    for (id in newOrder.values()) {
+      switch (checklists.get(id)) {
+        case (null) { Runtime.trap("Invalid checklist item id: " # id.toText()) };
+        case (?item) {
+          checklists.add(id, { item with order });
+        };
+      };
+      order += 1;
+    };
+  };
+
+  ///////////
+  // Card Archiving - New
+  ///////////
+
+  public shared ({ caller }) func archiveCard(cardId : Nat, actorUserId : Nat) : async () {
+    switch (cards.get(cardId)) {
+      case (null) { Runtime.trap("Card not found") };
+      case (?card) {
+        cards.add(cardId, { card with isArchived = true; archivedAt = ?Time.now() });
+      };
+    };
+  };
+
+  public shared ({ caller }) func restoreCard(cardId : Nat, actorUserId : Nat) : async () {
+    switch (cards.get(cardId)) {
+      case (null) { Runtime.trap("Card not found") };
+      case (?card) {
+        cards.add(cardId, { card with isArchived = false; archivedAt = null });
+      };
+    };
+  };
+
+  public query ({ caller }) func getArchivedCards(projectId : Nat) : async [Card] {
+    cards.values().toArray().filter(
+      func(card) { card.projectId == projectId and card.isArchived },
+    );
+  };
+
+  ///////////////////////////
+  // Project Summary - New
+  ///////////////////////////
+
+  public query ({ caller }) func getProjectSummary(projectId : Nat) : async ProjectSummary {
+    let projectCards = cards.values().toArray().filter(func(c) { c.projectId == projectId });
+    let currentTime = Time.now();
+    let weekNanos = 604800000000000;
+
+    let overdueCount = projectCards.filter(
+      func(c) {
+        switch (c.dueDate) {
+          case (null) { false };
+          case (?due) { due < currentTime };
+        };
+      }
+    ).size();
+
+    let dueSoonCount = projectCards.filter(
+      func(c) {
+        switch (c.dueDate) {
+          case (null) { false };
+          case (?due) { due >= currentTime and due <= currentTime + weekNanos };
+        };
+      }
+    ).size();
+
+    let unassignedCount = projectCards.filter(func(c) { c.assignedUserId == null }).size();
+
+    // Calculate tag usage counts
+    let tagCountArray = tagIdsToArray(projectCards);
+
+    {
+      totalCards = projectCards.size();
+      overdueCount;
+      dueSoonCount;
+      unassignedCount;
+      tagCounts = tagCountArray;
+    };
+  };
+
+  func tagIdsToArray(cards : [Card]) : [(Nat, Nat)] {
+    let tagMap = Map.empty<Nat, Nat>();
+
+    for (card in cards.values()) {
+      for (tagId in card.tags.values()) {
+        let count = switch (tagMap.get(tagId)) {
+          case (null) { 0 };
+          case (?c) { c };
+        };
+        tagMap.add(tagId, count + 1);
+      };
+    };
+
+    tagMap.toArray();
   };
 };

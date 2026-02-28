@@ -31,34 +31,45 @@ import {
   horizontalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import {
+  BarChart2,
   ChevronDown,
   Clock,
   Crown,
   Kanban,
+  Layers,
   LayoutDashboard,
   Loader2,
   Plus,
+  Redo2,
+  Settings,
   Shield,
   Tag,
+  Undo2,
   Users,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { Card, ColumnView } from "./backend.d";
 import ActivityTab from "./components/ActivityTab";
+import BulkCardImport from "./components/BulkCardImport";
+import DashboardTab from "./components/DashboardTab";
 import FilterBar, {
   EMPTY_FILTER,
   type FilterState,
 } from "./components/FilterBar";
 import KanbanCard from "./components/KanbanCard";
 import KanbanColumn from "./components/KanbanColumn";
+import ProjectExportImport from "./components/ProjectExportImport";
 import ProjectSwitcher from "./components/ProjectSwitcher";
+import SwimlanesModal from "./components/SwimlanesModal";
 import TagsModal from "./components/TagsModal";
 import { hashPin } from "./components/UsersTab";
 import { MasterAdminSetup } from "./components/UsersTab";
 import UsersTab from "./components/UsersTab";
 import { useActor } from "./hooks/useActor";
 import {
+  useArchiveCard,
+  useArchivedCards,
   useAssignCard,
   useCards,
   useColumns,
@@ -67,24 +78,32 @@ import {
   useDeleteCard,
   useDeleteColumn,
   useDeleteFilterPreset,
+  useDisableSwimlanes,
+  useEnableSwimlanes,
   useFilterPresets,
   useInitDefaultProject,
   useIsAdminSetup,
   useMoveCard,
   useMoveCards,
   useProjectTags,
+  useProjects,
   useRenameColumn,
+  useRenameUser,
   useReorderColumns,
+  useRestoreCard,
   useSaveFilterPreset,
+  useSwimlanes,
   useUpdateCard,
   useUpdateCardDueDate,
+  useUpdateCardSwimlane,
   useUpdateCardTags,
   useUsers,
   useVerifyPin,
 } from "./hooks/useQueries";
 import type { User } from "./hooks/useQueries";
+import { useUndoRedo } from "./hooks/useUndoRedo";
 
-type TabId = "board" | "users" | "activity";
+type TabId = "board" | "users" | "activity" | "dashboard";
 
 export default function App() {
   const { actor, isFetching: actorFetching } = useActor();
@@ -101,6 +120,7 @@ export default function App() {
   // ── Active project state ────────────────────────────────────────────────────
   const [activeProjectId, setActiveProjectId] = useState<bigint | null>(null);
 
+  const { data: projects = [] } = useProjects();
   const { data: columns = [], isLoading: columnsLoading } =
     useColumns(activeProjectId);
   const { data: cards = [], isLoading: cardsLoading } =
@@ -110,6 +130,8 @@ export default function App() {
   const { data: filterPresets = [] } = useFilterPresets(activeProjectId);
   const { mutateAsync: saveFilterPreset } = useSaveFilterPreset();
   const { mutateAsync: deleteFilterPreset } = useDeleteFilterPreset();
+  const { data: swimlanes = [] } = useSwimlanes(activeProjectId);
+  const { data: archivedCards = [] } = useArchivedCards(activeProjectId);
 
   // ── Init default project on first actor availability ────────────────────────
   const { mutateAsync: initDefaultProject } = useInitDefaultProject();
@@ -148,8 +170,51 @@ export default function App() {
     }
   }, [users, activeUser]);
 
+  // ── Undo / Redo ─────────────────────────────────────────────────────────────
+  const { pushUndo, undo, redo, clearAll, undoLabel, redoLabel } =
+    useUndoRedo();
+
+  // ── Undo/Redo keyboard shortcuts ────────────────────────────────────────────
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (activeTab !== "board") return;
+      // Don't fire when user is typing in an input/textarea
+      const target = e.target as HTMLElement;
+      if (
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.isContentEditable
+      )
+        return;
+      const isMac = navigator.platform.toUpperCase().includes("MAC");
+      const ctrlOrCmd = isMac ? e.metaKey : e.ctrlKey;
+      if (ctrlOrCmd && e.key === "z" && !e.shiftKey) {
+        e.preventDefault();
+        undo();
+      }
+      if (ctrlOrCmd && (e.key === "Z" || (e.key === "z" && e.shiftKey))) {
+        e.preventDefault();
+        redo();
+      }
+      if (ctrlOrCmd && e.key === "y") {
+        e.preventDefault();
+        redo();
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [activeTab, undo, redo]);
+
   // ── Tags modal ──────────────────────────────────────────────────────────────
   const [showTagsModal, setShowTagsModal] = useState(false);
+
+  // ── Project settings (export/import) modal ──────────────────────────────────
+  const [showProjectSettings, setShowProjectSettings] = useState(false);
+
+  // ── Bulk card import modal ──────────────────────────────────────────────────
+  const [bulkImportColumn, setBulkImportColumn] = useState<ColumnView | null>(
+    null,
+  );
 
   // ── Auth gate helper ────────────────────────────────────────────────────────
   function requireActiveUser(): boolean {
@@ -175,6 +240,19 @@ export default function App() {
   const { mutateAsync: assignCard } = useAssignCard();
   const { mutateAsync: updateCardTags } = useUpdateCardTags();
   const { mutateAsync: updateCardDueDate } = useUpdateCardDueDate();
+  const { mutateAsync: archiveCard } = useArchiveCard();
+  const { mutateAsync: restoreCard } = useRestoreCard();
+  const { mutateAsync: updateCardSwimlane } = useUpdateCardSwimlane();
+  const { mutateAsync: renameUser } = useRenameUser();
+  const { mutateAsync: enableSwimlanes } = useEnableSwimlanes();
+  const { mutateAsync: disableSwimlanes } = useDisableSwimlanes();
+
+  // ── Swimlanes modal ─────────────────────────────────────────────────────────
+  const [showSwimlanesModal, setShowSwimlanesModal] = useState(false);
+
+  // Derive swimlanesEnabled from current project
+  const swimlanesEnabled =
+    projects.find((p) => p.id === activeProjectId)?.swimlanesEnabled ?? false;
 
   // ── Filter state ────────────────────────────────────────────────────────────
   const [filters, setFilters] = useState<FilterState>(EMPTY_FILTER);
@@ -255,12 +333,43 @@ export default function App() {
     [createCard, activeUser, activeProjectId],
   );
 
+  const handleBulkCreateCard = useCallback(
+    async (
+      columnId: bigint,
+      title: string,
+      description: string | null,
+    ): Promise<bigint> => {
+      if (!activeUser) {
+        toast.error("Please set yourself as active in the Users tab first");
+        throw new Error("No active user");
+      }
+      if (!activeProjectId) {
+        toast.error("No active project selected");
+        throw new Error("No active project");
+      }
+      return createCard({
+        title,
+        description,
+        columnId,
+        actorUserId: activeUser.id,
+        projectId: activeProjectId,
+      });
+    },
+    [createCard, activeUser, activeProjectId],
+  );
+
   const handleUpdateCard = useCallback(
     async (cardId: bigint, title: string, description: string | null) => {
       if (!activeUser) {
         toast.error("Please set yourself as active in the Users tab first");
         throw new Error("No active user");
       }
+
+      // Capture previous state for undo
+      const card = cards.find((c) => c.id === cardId);
+      const prevTitle = card?.title ?? "";
+      const prevDescription = card?.description ?? null;
+
       try {
         await updateCard({
           cardId,
@@ -269,13 +378,37 @@ export default function App() {
           actorUserId: activeUser.id,
           projectId: activeProjectId ?? undefined,
         });
+
+        const capturedUserId = activeUser.id;
+        const capturedProjectId = activeProjectId;
+        pushUndo({
+          label: "Edit title",
+          undoFn: async () => {
+            await updateCard({
+              cardId,
+              title: prevTitle,
+              description: prevDescription,
+              actorUserId: capturedUserId,
+              projectId: capturedProjectId ?? undefined,
+            });
+          },
+          redoFn: async () => {
+            await updateCard({
+              cardId,
+              title,
+              description,
+              actorUserId: capturedUserId,
+              projectId: capturedProjectId ?? undefined,
+            });
+          },
+        });
       } catch (err) {
         if (err instanceof Error && err.message === "No active user") throw err;
         toast.error("Failed to update card");
         throw new Error("Failed to update card");
       }
     },
-    [updateCard, activeUser, activeProjectId],
+    [updateCard, activeUser, activeProjectId, cards, pushUndo],
   );
 
   const handleDeleteCard = useCallback(
@@ -305,6 +438,15 @@ export default function App() {
         toast.error("Please set yourself as active in the Users tab first");
         throw new Error("No active user");
       }
+
+      // Capture state before the move for undo
+      const card = cards.find((c) => c.id === cardId);
+      const originalColumnId = card?.columnId;
+      const originalColumn = columns.find((c) => c.id === originalColumnId);
+      const originalPosition = originalColumn
+        ? BigInt(originalColumn.cardIds.findIndex((id) => id === cardId))
+        : 0n;
+
       try {
         await moveCard({
           cardId,
@@ -313,13 +455,40 @@ export default function App() {
           actorUserId: activeUser.id,
           projectId: activeProjectId ?? undefined,
         });
+
+        // Push undo after successful action (raw mutation bypasses undo tracking)
+        if (card && originalColumnId != null) {
+          const capturedUserId = activeUser.id;
+          const capturedProjectId = activeProjectId;
+          pushUndo({
+            label: "Move card",
+            undoFn: async () => {
+              await moveCard({
+                cardId,
+                targetColumnId: originalColumnId,
+                newPosition: originalPosition >= 0n ? originalPosition : 0n,
+                actorUserId: capturedUserId,
+                projectId: capturedProjectId ?? undefined,
+              });
+            },
+            redoFn: async () => {
+              await moveCard({
+                cardId,
+                targetColumnId,
+                newPosition,
+                actorUserId: capturedUserId,
+                projectId: capturedProjectId ?? undefined,
+              });
+            },
+          });
+        }
       } catch (err) {
         if (err instanceof Error && err.message === "No active user") throw err;
         toast.error("Failed to move card");
         throw new Error("Failed to move card");
       }
     },
-    [moveCard, activeUser, activeProjectId],
+    [moveCard, activeUser, activeProjectId, cards, columns, pushUndo],
   );
 
   const handleRenameColumn = useCallback(
@@ -372,6 +541,11 @@ export default function App() {
         toast.error("Please set yourself as active in the Users tab first");
         throw new Error("No active user");
       }
+
+      // Capture previous assignee for undo
+      const card = cards.find((c) => c.id === cardId);
+      const prevUserId = card?.assignedUserId ?? null;
+
       try {
         await assignCard({
           cardId,
@@ -379,13 +553,35 @@ export default function App() {
           actorUserId: activeUser.id,
           projectId: activeProjectId ?? undefined,
         });
+
+        const capturedUserId = activeUser.id;
+        const capturedProjectId = activeProjectId;
+        pushUndo({
+          label: "Change assignee",
+          undoFn: async () => {
+            await assignCard({
+              cardId,
+              userId: prevUserId,
+              actorUserId: capturedUserId,
+              projectId: capturedProjectId ?? undefined,
+            });
+          },
+          redoFn: async () => {
+            await assignCard({
+              cardId,
+              userId,
+              actorUserId: capturedUserId,
+              projectId: capturedProjectId ?? undefined,
+            });
+          },
+        });
       } catch (err) {
         if (err instanceof Error && err.message === "No active user") throw err;
         toast.error("Failed to assign card");
         throw new Error("Failed to assign card");
       }
     },
-    [assignCard, activeUser, activeProjectId],
+    [assignCard, activeUser, activeProjectId, cards, pushUndo],
   );
 
   const handleUpdateCardTags = useCallback(
@@ -395,6 +591,11 @@ export default function App() {
         throw new Error("No active user");
       }
       if (!activeProjectId) throw new Error("No active project");
+
+      // Capture previous tags for undo
+      const card = cards.find((c) => c.id === cardId);
+      const prevTagIds = card?.tags ?? [];
+
       try {
         await updateCardTags({
           cardId,
@@ -402,13 +603,35 @@ export default function App() {
           actorUserId: activeUser.id,
           projectId: activeProjectId,
         });
+
+        const capturedUserId = activeUser.id;
+        const capturedProjectId = activeProjectId;
+        pushUndo({
+          label: "Update tags",
+          undoFn: async () => {
+            await updateCardTags({
+              cardId,
+              tagIds: prevTagIds,
+              actorUserId: capturedUserId,
+              projectId: capturedProjectId,
+            });
+          },
+          redoFn: async () => {
+            await updateCardTags({
+              cardId,
+              tagIds,
+              actorUserId: capturedUserId,
+              projectId: capturedProjectId,
+            });
+          },
+        });
       } catch (err) {
         if (err instanceof Error && err.message === "No active user") throw err;
         toast.error("Failed to update tags");
         throw new Error("Failed to update tags");
       }
     },
-    [updateCardTags, activeUser, activeProjectId],
+    [updateCardTags, activeUser, activeProjectId, cards, pushUndo],
   );
 
   const handleUpdateCardDueDate = useCallback(
@@ -418,6 +641,11 @@ export default function App() {
         throw new Error("No active user");
       }
       if (!activeProjectId) throw new Error("No active project");
+
+      // Capture previous due date for undo
+      const card = cards.find((c) => c.id === cardId);
+      const prevDueDate = card?.dueDate ?? null;
+
       try {
         await updateCardDueDate({
           cardId,
@@ -425,14 +653,217 @@ export default function App() {
           actorUserId: activeUser.id,
           projectId: activeProjectId,
         });
+
+        const capturedUserId = activeUser.id;
+        const capturedProjectId = activeProjectId;
+        pushUndo({
+          label: "Set due date",
+          undoFn: async () => {
+            await updateCardDueDate({
+              cardId,
+              dueDate: prevDueDate,
+              actorUserId: capturedUserId,
+              projectId: capturedProjectId,
+            });
+          },
+          redoFn: async () => {
+            await updateCardDueDate({
+              cardId,
+              dueDate,
+              actorUserId: capturedUserId,
+              projectId: capturedProjectId,
+            });
+          },
+        });
       } catch (err) {
         if (err instanceof Error && err.message === "No active user") throw err;
         toast.error("Failed to update due date");
         throw new Error("Failed to update due date");
       }
     },
-    [updateCardDueDate, activeUser, activeProjectId],
+    [updateCardDueDate, activeUser, activeProjectId, cards, pushUndo],
   );
+
+  // ── Archive / Restore handlers ──────────────────────────────────────────────
+  const handleArchiveCard = useCallback(
+    async (cardId: bigint) => {
+      if (!activeUser) {
+        toast.error("Please set yourself as active in the Users tab first");
+        throw new Error("No active user");
+      }
+      try {
+        await archiveCard({
+          cardId,
+          actorUserId: activeUser.id,
+          projectId: activeProjectId ?? undefined,
+        });
+
+        const capturedUserId = activeUser.id;
+        const capturedProjectId = activeProjectId;
+        pushUndo({
+          label: "Archive card",
+          undoFn: async () => {
+            await restoreCard({
+              cardId,
+              actorUserId: capturedUserId,
+              projectId: capturedProjectId ?? undefined,
+            });
+          },
+          redoFn: async () => {
+            await archiveCard({
+              cardId,
+              actorUserId: capturedUserId,
+              projectId: capturedProjectId ?? undefined,
+            });
+          },
+        });
+      } catch (err) {
+        if (err instanceof Error && err.message === "No active user") throw err;
+        toast.error("Failed to archive card");
+        throw new Error("Failed to archive card");
+      }
+    },
+    [archiveCard, restoreCard, activeUser, activeProjectId, pushUndo],
+  );
+
+  const handleRestoreCard = useCallback(
+    async (cardId: bigint) => {
+      if (!activeUser) {
+        toast.error("Please set yourself as active in the Users tab first");
+        throw new Error("No active user");
+      }
+      try {
+        await restoreCard({
+          cardId,
+          actorUserId: activeUser.id,
+          projectId: activeProjectId ?? undefined,
+        });
+
+        const capturedUserId = activeUser.id;
+        const capturedProjectId = activeProjectId;
+        pushUndo({
+          label: "Restore card",
+          undoFn: async () => {
+            await archiveCard({
+              cardId,
+              actorUserId: capturedUserId,
+              projectId: capturedProjectId ?? undefined,
+            });
+          },
+          redoFn: async () => {
+            await restoreCard({
+              cardId,
+              actorUserId: capturedUserId,
+              projectId: capturedProjectId ?? undefined,
+            });
+          },
+        });
+      } catch (err) {
+        if (err instanceof Error && err.message === "No active user") throw err;
+        toast.error("Failed to restore card");
+        throw new Error("Failed to restore card");
+      }
+    },
+    [restoreCard, archiveCard, activeUser, activeProjectId, pushUndo],
+  );
+
+  const handleUpdateCardSwimlane = useCallback(
+    async (cardId: bigint, swimlaneId: bigint | null) => {
+      if (!activeUser) {
+        toast.error("Please set yourself as active in the Users tab first");
+        throw new Error("No active user");
+      }
+      try {
+        await updateCardSwimlane({
+          cardId,
+          swimlaneId,
+          actorUserId: activeUser.id,
+          projectId: activeProjectId ?? undefined,
+        });
+      } catch (err) {
+        if (err instanceof Error && err.message === "No active user") throw err;
+        toast.error("Failed to update swimlane");
+        throw new Error("Failed to update swimlane");
+      }
+    },
+    [updateCardSwimlane, activeUser, activeProjectId],
+  );
+
+  const handleQuickAdd = useCallback(
+    async (
+      columnId: bigint,
+      title: string,
+      tagIds: bigint[],
+      assigneeId: bigint | null,
+      dueDate: bigint | null,
+    ) => {
+      if (!activeUser) {
+        toast.error("Please set yourself as active first");
+        throw new Error("No active user");
+      }
+      if (!activeProjectId) throw new Error("No active project");
+      const cardId = await createCard({
+        title,
+        description: null,
+        columnId,
+        actorUserId: activeUser.id,
+        projectId: activeProjectId,
+      });
+      if (tagIds.length > 0) {
+        await updateCardTags({
+          cardId,
+          tagIds,
+          actorUserId: activeUser.id,
+          projectId: activeProjectId,
+        });
+      }
+      if (assigneeId !== null) {
+        await assignCard({
+          cardId,
+          userId: assigneeId,
+          actorUserId: activeUser.id,
+          projectId: activeProjectId,
+        });
+      }
+      if (dueDate !== null) {
+        await updateCardDueDate({
+          cardId,
+          dueDate,
+          actorUserId: activeUser.id,
+          projectId: activeProjectId,
+        });
+      }
+    },
+    [
+      createCard,
+      updateCardTags,
+      assignCard,
+      updateCardDueDate,
+      activeUser,
+      activeProjectId,
+    ],
+  );
+
+  const handleRenameUser = useCallback(
+    async (userId: bigint, newName: string) => {
+      if (!activeUser) return;
+      try {
+        await renameUser({ userId, newName, actorUserId: activeUser.id });
+        // Re-sync active user if it's the renamed user
+        if (activeUser.id === userId) {
+          setActiveUser((prev) => (prev ? { ...prev, name: newName } : prev));
+        }
+      } catch {
+        toast.error("Failed to rename user");
+      }
+    },
+    [renameUser, activeUser],
+  );
+
+  // enableSwimlanes and disableSwimlanes are used by SwimlanesModal internally via hooks
+  // but we keep them here in case they're needed for future direct calls
+  void enableSwimlanes;
+  void disableSwimlanes;
 
   // ── Filter preset handlers ──────────────────────────────────────────────────
   const handleSavePreset = useCallback(
@@ -491,6 +922,7 @@ export default function App() {
           (preset.dateField as "createdAt" | "dueDate" | undefined) ?? null,
         dateFrom: preset.dateFrom,
         dateTo: preset.dateTo,
+        showArchived: false,
       });
       toast.success(`Applied preset "${preset.name}"`);
     },
@@ -547,6 +979,12 @@ export default function App() {
   // ── Filtering logic ─────────────────────────────────────────────────────────
   function applyFilters(columnCards: Card[]): Card[] {
     return columnCards.filter((card) => {
+      // Archived filter — by default hide archived cards; if showArchived, show only archived
+      if (filters.showArchived) {
+        if (!card.isArchived) return false;
+      } else {
+        if (card.isArchived) return false;
+      }
       // Text search
       if (filters.textSearch) {
         const q = filters.textSearch.toLowerCase();
@@ -865,13 +1303,37 @@ export default function App() {
 
   // Build effective columns/cards for rendering (uses optimistic override when dragging)
   function getEffectiveCardsForColumn(column: ColumnView): Card[] {
-    const cardMap = new Map(cards.map((c) => [c.id.toString(), c]));
+    // When showing archived, also include archived cards that belonged to this column
+    const allCardsForColumn = filters.showArchived
+      ? [
+          ...cards,
+          ...archivedCards.filter(
+            (ac) =>
+              !cards.some((c) => c.id === ac.id) &&
+              ac.columnId?.toString() === column.id.toString(),
+          ),
+        ]
+      : cards;
+    const cardMap = new Map(allCardsForColumn.map((c) => [c.id.toString(), c]));
     const cardIds =
       localColumnsOverride?.get(column.id.toString()) ??
       column.cardIds.map((id) => id.toString());
-    return cardIds
+
+    const result = cardIds
       .map((id) => cardMap.get(id))
       .filter((c): c is Card => c !== undefined);
+
+    // Also append archived cards for this column that aren't in cardIds
+    if (filters.showArchived) {
+      const archivedForCol = archivedCards.filter(
+        (ac) =>
+          ac.columnId?.toString() === column.id.toString() &&
+          !cardIds.includes(ac.id.toString()),
+      );
+      result.push(...archivedForCol);
+    }
+
+    return result;
   }
 
   const draggingCard = draggingCardId
@@ -918,6 +1380,65 @@ export default function App() {
           projectId={activeProjectId}
           activeUser={activeUser}
         />
+      )}
+
+      {/* Swimlanes modal */}
+      {activeProjectId && (
+        <SwimlanesModal
+          open={showSwimlanesModal}
+          onOpenChange={setShowSwimlanesModal}
+          projectId={activeProjectId}
+          activeUser={activeUser}
+          swimlanesEnabled={swimlanesEnabled}
+          swimlanes={swimlanes}
+        />
+      )}
+
+      {/* Bulk card import modal */}
+      <BulkCardImport
+        open={bulkImportColumn !== null}
+        onOpenChange={(isOpen) => {
+          if (!isOpen) setBulkImportColumn(null);
+        }}
+        targetColumn={bulkImportColumn}
+        columns={columns}
+        projectTags={projectTags}
+        users={users}
+        activeUser={activeUser}
+        onCreateCardWithId={handleBulkCreateCard}
+        onUpdateCardTags={handleUpdateCardTags}
+        onAssignCard={handleAssignCard}
+      />
+
+      {/* Project settings dialog (export/import) */}
+      {activeProjectId && actor && (
+        <Dialog
+          open={showProjectSettings}
+          onOpenChange={setShowProjectSettings}
+        >
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="text-base font-display flex items-center gap-2">
+                <Settings className="h-4 w-4 text-muted-foreground" />
+                Project Settings
+              </DialogTitle>
+            </DialogHeader>
+            <div className="pt-1">
+              <ProjectExportImport
+                actor={actor}
+                projectId={activeProjectId}
+                projectName={
+                  projects.find((p) => p.id === activeProjectId)?.name ??
+                  "Project"
+                }
+                activeUser={activeUser}
+                onImportComplete={() => {
+                  setShowProjectSettings(false);
+                }}
+              />
+            </div>
+          </DialogContent>
+        </Dialog>
       )}
 
       {/* Quick user switcher PIN dialog */}
@@ -1019,6 +1540,7 @@ export default function App() {
               setLocalColumnsOverride(null);
               setLocalColumnOrder(null);
               setAddingColumn(false);
+              clearAll();
             }}
             activeUser={activeUser}
           />
@@ -1065,9 +1587,51 @@ export default function App() {
             <Clock className="h-3.5 w-3.5" />
             Activity
           </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("dashboard")}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+              activeTab === "dashboard"
+                ? "bg-secondary text-foreground"
+                : "text-muted-foreground hover:text-foreground hover:bg-secondary/60"
+            }`}
+          >
+            <BarChart2 className="h-3.5 w-3.5" />
+            Dashboard
+          </button>
         </nav>
 
         <div className="ml-auto flex items-center gap-2">
+          {/* Undo/Redo buttons — shown on board tab */}
+          {activeTab === "board" && (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  undo();
+                }}
+                disabled={undoLabel === null}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-md text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors disabled:opacity-30 disabled:pointer-events-none"
+                title={undoLabel ? `Undo: ${undoLabel}` : "Nothing to undo"}
+              >
+                <Undo2 className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Undo</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  redo();
+                }}
+                disabled={redoLabel === null}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-md text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors disabled:opacity-30 disabled:pointer-events-none"
+                title={redoLabel ? `Redo: ${redoLabel}` : "Nothing to redo"}
+              >
+                <Redo2 className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Redo</span>
+              </button>
+            </>
+          )}
+
           {/* Tags button — admin only, shown on board tab */}
           {isAdminUser && activeTab === "board" && activeProjectId && (
             <button
@@ -1078,6 +1642,39 @@ export default function App() {
             >
               <Tag className="h-3.5 w-3.5" />
               Tags
+            </button>
+          )}
+
+          {/* Swimlanes button — admin only, shown on board tab */}
+          {isAdminUser && activeTab === "board" && activeProjectId && (
+            <button
+              type="button"
+              onClick={() => setShowSwimlanesModal(true)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                swimlanesEnabled
+                  ? "text-primary bg-primary/10 hover:bg-primary/15"
+                  : "text-muted-foreground hover:text-foreground hover:bg-secondary/60"
+              }`}
+              title={
+                swimlanesEnabled
+                  ? "Swimlanes enabled — click to manage"
+                  : "Manage swimlanes"
+              }
+            >
+              <Layers className="h-3.5 w-3.5" />
+              Swimlanes
+            </button>
+          )}
+
+          {/* Project settings (export/import) — shown when a project is active */}
+          {activeProjectId && (
+            <button
+              type="button"
+              onClick={() => setShowProjectSettings(true)}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors"
+              title="Project settings (export / import)"
+            >
+              <Settings className="h-3.5 w-3.5" />
             </button>
           )}
 
@@ -1248,11 +1845,21 @@ export default function App() {
                         onAssignCard={handleAssignCard}
                         onUpdateCardTags={handleUpdateCardTags}
                         onUpdateCardDueDate={handleUpdateCardDueDate}
+                        onArchiveCard={handleArchiveCard}
+                        onRestoreCard={handleRestoreCard}
+                        onUpdateCardSwimlane={handleUpdateCardSwimlane}
+                        onQuickAdd={handleQuickAdd}
                         onMoveCards={handleMoveCards}
+                        onBulkImport={() => {
+                          if (!requireActiveUser()) return;
+                          setBulkImportColumn(column);
+                        }}
                         projectTags={projectTags}
                         siblingColumns={effectiveColumns}
                         users={users}
                         activeUser={activeUser}
+                        swimlanes={swimlanes}
+                        swimlanesEnabled={swimlanesEnabled}
                         animationDelay={idx * 60}
                         isDraggingColumn={draggingColumnId !== null}
                       />
@@ -1372,9 +1979,19 @@ export default function App() {
           <UsersTab
             activeUser={activeUser}
             onSetActiveUser={(user) => setActiveUser(user)}
+            onRenameUser={handleRenameUser}
           />
-        ) : (
+        ) : activeTab === "activity" ? (
           <ActivityTab projectId={activeProjectId} />
+        ) : (
+          <DashboardTab
+            projectId={activeProjectId}
+            projectTags={projectTags}
+            onApplyFilter={(partial) => {
+              setFilters((prev) => ({ ...prev, ...partial }));
+              setActiveTab("board");
+            }}
+          />
         )}
       </main>
 

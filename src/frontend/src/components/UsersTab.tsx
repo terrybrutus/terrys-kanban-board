@@ -2,15 +2,19 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   AlertCircle,
+  Check,
   Crown,
+  HelpCircle,
   KeyRound,
   Loader2,
+  Pencil,
   Shield,
   ShieldCheck,
   Trash2,
   UserCheck,
   UserMinus,
   UserPlus,
+  X,
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -20,7 +24,10 @@ import {
   useDeleteUser,
   useDemoteUser,
   usePromoteUser,
+  useRenameUser,
+  useResetMasterAdminPinWithSecurityAnswer,
   useResetUserPin,
+  useSetMasterAdminSecurityQuestion,
   useSetupMasterAdmin,
   useUsers,
   useVerifyPin,
@@ -408,6 +415,7 @@ interface SetActiveConfirmProps {
   activeUser: User | null;
   onSuccess: (user: User) => void;
   onCancel: () => void;
+  masterAdmin?: User | null;
 }
 
 function SetActiveConfirm({
@@ -415,10 +423,12 @@ function SetActiveConfirm({
   activeUser,
   onSuccess,
   onCancel,
+  masterAdmin,
 }: SetActiveConfirmProps) {
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
   const [showForgot, setShowForgot] = useState(false);
+  const [showSecurityQuestion, setShowSecurityQuestion] = useState(false);
   const { mutateAsync: verifyPin, isPending } = useVerifyPin();
 
   async function handleConfirm(pinOverride?: string) {
@@ -453,6 +463,20 @@ function SetActiveConfirm({
           handleConfirm(newPin);
         }}
         onCancel={() => setShowForgot(false)}
+      />
+    );
+  }
+
+  if (showSecurityQuestion && masterAdmin && user.isMasterAdmin) {
+    return (
+      <MasterAdminForgotPin
+        masterAdmin={masterAdmin}
+        onSuccess={(newPin) => {
+          setPin(newPin);
+          setShowSecurityQuestion(false);
+          handleConfirm(newPin);
+        }}
+        onCancel={() => setShowSecurityQuestion(false)}
       />
     );
   }
@@ -500,13 +524,23 @@ function SetActiveConfirm({
         </Button>
       </div>
       {error && <p className="text-xs text-destructive">{error}</p>}
-      <button
-        type="button"
-        className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors"
-        onClick={() => setShowForgot(true)}
-      >
-        Forgot PIN? Reset with admin
-      </button>
+      {user.isMasterAdmin && masterAdmin?.securityQuestion ? (
+        <button
+          type="button"
+          className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors"
+          onClick={() => setShowSecurityQuestion(true)}
+        >
+          Forgot PIN? Use security question
+        </button>
+      ) : (
+        <button
+          type="button"
+          className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors"
+          onClick={() => setShowForgot(true)}
+        >
+          Forgot PIN? Reset with admin
+        </button>
+      )}
     </div>
   );
 }
@@ -640,20 +674,189 @@ function ChangePinForm({ user, onDone }: ChangePinFormProps) {
   );
 }
 
+// ── Master Admin Forgot PIN (security question) ───────────────────────────────
+interface MasterAdminForgotPinProps {
+  masterAdmin: User;
+  onSuccess: (newPin: string) => void;
+  onCancel: () => void;
+}
+
+function MasterAdminForgotPin({
+  masterAdmin,
+  onSuccess,
+  onCancel,
+}: MasterAdminForgotPinProps) {
+  const [answer, setAnswer] = useState("");
+  const [newPin, setNewPin] = useState("");
+  const [confirmPin, setConfirmPin] = useState("");
+  const [error, setError] = useState("");
+  const { mutateAsync: resetPin, isPending } =
+    useResetMasterAdminPinWithSecurityAnswer();
+
+  const question = masterAdmin.securityQuestion;
+
+  if (!question) {
+    return (
+      <div className="mt-2 p-3 rounded-lg bg-amber-500/5 border border-amber-500/25 space-y-2">
+        <div className="flex items-center gap-1.5 text-xs font-medium text-amber-600">
+          <HelpCircle className="h-3.5 w-3.5 shrink-0" />
+          <span>No security question set</span>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          The master admin has not set a security question. Contact an admin for
+          manual PIN reset.
+        </p>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-8 text-xs px-3"
+          onClick={onCancel}
+        >
+          Cancel
+        </Button>
+      </div>
+    );
+  }
+
+  async function handleReset() {
+    if (!answer.trim()) {
+      setError("Answer is required");
+      return;
+    }
+    if (newPin.length !== 4) {
+      setError("New PIN must be 4 digits");
+      return;
+    }
+    if (newPin !== confirmPin) {
+      setError("PINs don't match");
+      return;
+    }
+    setError("");
+    try {
+      const answerHash = await hashPin(answer.trim().toLowerCase());
+      const newPinHash = await hashPin(newPin);
+      const ok = await resetPin({ answerHash, newPinHash });
+      if (!ok) {
+        setError("Security answer is incorrect");
+        return;
+      }
+      toast.success("PIN reset successfully. Log in with your new PIN.");
+      onSuccess(newPin);
+    } catch {
+      setError("Reset failed. Please try again.");
+    }
+  }
+
+  return (
+    <div className="mt-2 p-3 rounded-lg bg-amber-500/5 border border-amber-500/25 space-y-2">
+      <div className="flex items-center gap-1.5 text-xs font-medium text-amber-600">
+        <HelpCircle className="h-3.5 w-3.5 shrink-0" />
+        <span>Forgot PIN — Security Question</span>
+      </div>
+      <p className="text-xs font-medium text-foreground">{question}</p>
+      <Input
+        placeholder="Your answer…"
+        value={answer}
+        onChange={(e) => {
+          setAnswer(e.target.value);
+          setError("");
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") onCancel();
+        }}
+        className="text-sm h-8"
+        disabled={isPending}
+        autoFocus
+      />
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-muted-foreground w-20 shrink-0">
+          New PIN
+        </span>
+        <PinInput
+          value={newPin}
+          onChange={(v) => {
+            setNewPin(v);
+            setError("");
+          }}
+          disabled={isPending}
+        />
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-muted-foreground w-20 shrink-0">
+          Confirm PIN
+        </span>
+        <PinInput
+          value={confirmPin}
+          onChange={(v) => {
+            setConfirmPin(v);
+            setError("");
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") handleReset();
+          }}
+          disabled={isPending}
+        />
+      </div>
+      {error && <p className="text-xs text-destructive">{error}</p>}
+      <div className="flex gap-2 pt-1">
+        <Button
+          size="sm"
+          className="h-8 text-xs px-3 bg-amber-500 hover:bg-amber-600 text-white"
+          onClick={handleReset}
+          disabled={
+            !answer.trim() ||
+            newPin.length !== 4 ||
+            confirmPin.length !== 4 ||
+            isPending
+          }
+        >
+          {isPending ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            "Reset PIN"
+          )}
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-8 text-xs px-3"
+          onClick={onCancel}
+          disabled={isPending}
+        >
+          Cancel
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 // ── User row ──────────────────────────────────────────────────────────────────
 interface UserRowProps {
   user: User;
   isActive: boolean;
   activeUser: User | null;
   onSetActive: (user: User | null) => void;
+  onRenameUser?: (userId: bigint, newName: string) => void;
+  allUsers?: User[];
 }
 
-type RowAction = "delete" | "setActive" | "changePin" | null;
+type RowAction = "delete" | "setActive" | "changePin" | "forgotPin" | null;
 
-function UserRow({ user, isActive, activeUser, onSetActive }: UserRowProps) {
+function UserRow({
+  user,
+  isActive,
+  activeUser,
+  onSetActive,
+  onRenameUser,
+  allUsers = [],
+}: UserRowProps) {
   const [action, setAction] = useState<RowAction>(null);
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [editName, setEditName] = useState(user.name);
+  const [isSavingName, setIsSavingName] = useState(false);
   const { mutateAsync: promoteUser, isPending: isPromoting } = usePromoteUser();
   const { mutateAsync: demoteUser, isPending: isDemoting } = useDemoteUser();
+  const { mutateAsync: renameUser } = useRenameUser();
 
   const initials = user.name
     .split(" ")
@@ -661,8 +864,6 @@ function UserRow({ user, isActive, activeUser, onSetActive }: UserRowProps) {
     .join("")
     .slice(0, 2)
     .toUpperCase();
-
-  const isMasterAdminActive = activeUser?.isMasterAdmin === true;
 
   async function handlePromote() {
     if (!activeUser) return;
@@ -684,9 +885,38 @@ function UserRow({ user, isActive, activeUser, onSetActive }: UserRowProps) {
     }
   }
 
+  async function handleSaveName() {
+    const trimmed = editName.trim();
+    if (!trimmed || trimmed === user.name || !activeUser) {
+      setIsEditingName(false);
+      setEditName(user.name);
+      return;
+    }
+    setIsSavingName(true);
+    try {
+      await renameUser({
+        userId: user.id,
+        newName: trimmed,
+        actorUserId: activeUser.id,
+      });
+      onRenameUser?.(user.id, trimmed);
+      toast.success("Name updated");
+      setIsEditingName(false);
+    } catch {
+      toast.error("Failed to update name");
+    } finally {
+      setIsSavingName(false);
+    }
+  }
+
+  const isMasterAdminActive = activeUser?.isMasterAdmin === true;
+  const canEditName = isActive || activeUser?.isMasterAdmin === true;
+
+  const masterAdmin = allUsers.find((u) => u.isMasterAdmin);
+
   return (
     <div
-      className={`rounded-lg border transition-colors ${
+      className={`group rounded-lg border transition-colors ${
         isActive ? "border-primary/40 bg-primary/5" : "border-border bg-card"
       } p-3`}
     >
@@ -704,29 +934,83 @@ function UserRow({ user, isActive, activeUser, onSetActive }: UserRowProps) {
 
         {/* Name + badges */}
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-sm font-medium text-foreground truncate">
-              {user.name}
-            </span>
-            {user.isMasterAdmin && (
-              <span className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-700 bg-amber-100 dark:text-amber-400 dark:bg-amber-900/30 rounded-full px-2 py-0.5 shrink-0">
-                <Crown className="h-2.5 w-2.5" />
-                Master Admin
+          {isEditingName ? (
+            <div className="flex items-center gap-1">
+              <Input
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleSaveName();
+                  if (e.key === "Escape") {
+                    setIsEditingName(false);
+                    setEditName(user.name);
+                  }
+                }}
+                className="h-7 text-sm px-2 py-0"
+                autoFocus
+                disabled={isSavingName}
+              />
+              <button
+                type="button"
+                className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors shrink-0"
+                onClick={handleSaveName}
+                disabled={isSavingName}
+              >
+                {isSavingName ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Check className="h-3.5 w-3.5" />
+                )}
+              </button>
+              <button
+                type="button"
+                className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors shrink-0"
+                onClick={() => {
+                  setIsEditingName(false);
+                  setEditName(user.name);
+                }}
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-sm font-medium text-foreground truncate">
+                {user.name}
               </span>
-            )}
-            {user.isAdmin && !user.isMasterAdmin && (
-              <span className="inline-flex items-center gap-1 text-[10px] font-medium text-blue-700 bg-blue-100 dark:text-blue-400 dark:bg-blue-900/30 rounded-full px-2 py-0.5 shrink-0">
-                <Shield className="h-2.5 w-2.5" />
-                Admin
-              </span>
-            )}
-            {isActive && (
-              <span className="inline-flex items-center gap-1 text-[10px] font-medium text-primary bg-primary/10 rounded-full px-2 py-0.5 shrink-0">
-                <UserCheck className="h-2.5 w-2.5" />
-                Active
-              </span>
-            )}
-          </div>
+              {canEditName && (
+                <button
+                  type="button"
+                  className="opacity-0 group-hover:opacity-100 h-4 w-4 flex items-center justify-center text-muted-foreground hover:text-foreground transition-all"
+                  onClick={() => {
+                    setIsEditingName(true);
+                    setEditName(user.name);
+                  }}
+                  title="Edit name"
+                >
+                  <Pencil className="h-3 w-3" />
+                </button>
+              )}
+              {user.isMasterAdmin && (
+                <span className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-700 bg-amber-100 dark:text-amber-400 dark:bg-amber-900/30 rounded-full px-2 py-0.5 shrink-0">
+                  <Crown className="h-2.5 w-2.5" />
+                  Master Admin
+                </span>
+              )}
+              {user.isAdmin && !user.isMasterAdmin && (
+                <span className="inline-flex items-center gap-1 text-[10px] font-medium text-blue-700 bg-blue-100 dark:text-blue-400 dark:bg-blue-900/30 rounded-full px-2 py-0.5 shrink-0">
+                  <Shield className="h-2.5 w-2.5" />
+                  Admin
+                </span>
+              )}
+              {isActive && (
+                <span className="inline-flex items-center gap-1 text-[10px] font-medium text-primary bg-primary/10 rounded-full px-2 py-0.5 shrink-0">
+                  <UserCheck className="h-2.5 w-2.5" />
+                  Active
+                </span>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Actions */}
@@ -833,10 +1117,21 @@ function UserRow({ user, isActive, activeUser, onSetActive }: UserRowProps) {
             setAction(null);
           }}
           onCancel={() => setAction(null)}
+          masterAdmin={masterAdmin}
         />
       )}
       {action === "changePin" && (
         <ChangePinForm user={user} onDone={() => setAction(null)} />
+      )}
+      {action === "forgotPin" && masterAdmin && (
+        <MasterAdminForgotPin
+          masterAdmin={masterAdmin}
+          onSuccess={(newPin) => {
+            void newPin;
+            setAction(null);
+          }}
+          onCancel={() => setAction(null)}
+        />
       )}
     </div>
   );
@@ -851,8 +1146,11 @@ export function MasterAdminSetup({ onComplete }: MasterAdminSetupProps) {
   const [name, setName] = useState("");
   const [pin, setPin] = useState("");
   const [confirmPin, setConfirmPin] = useState("");
+  const [securityQuestion, setSecurityQuestion] = useState("");
+  const [securityAnswer, setSecurityAnswer] = useState("");
   const [error, setError] = useState("");
   const { mutateAsync: setupMasterAdmin, isPending } = useSetupMasterAdmin();
+  const { mutateAsync: setSecurityQ } = useSetMasterAdminSecurityQuestion();
   const { data: users = [] } = useUsers();
 
   async function handleSetup() {
@@ -881,6 +1179,19 @@ export function MasterAdminSetup({ onComplete }: MasterAdminSetupProps) {
         isAdmin: true,
         isMasterAdmin: true,
       };
+      // Set security question if provided
+      if (securityQuestion.trim() && securityAnswer.trim()) {
+        try {
+          const answerHash = await hashPin(securityAnswer.trim().toLowerCase());
+          await setSecurityQ({
+            question: securityQuestion.trim(),
+            answerHash,
+            actorUserId: userId,
+          });
+        } catch {
+          // Non-fatal — user can set it later
+        }
+      }
       onComplete(newUser);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -985,6 +1296,38 @@ export function MasterAdminSetup({ onComplete }: MasterAdminSetupProps) {
               />
             </div>
 
+            {/* Security question (optional) */}
+            <div className="rounded-lg bg-secondary/50 border border-border p-3 space-y-2">
+              <p className="text-xs font-medium text-foreground flex items-center gap-1.5">
+                <HelpCircle className="h-3.5 w-3.5 text-muted-foreground" />
+                Forgot-PIN Security Question{" "}
+                <span className="text-muted-foreground font-normal">
+                  (optional)
+                </span>
+              </p>
+              <Input
+                placeholder="e.g. What was your first pet's name?"
+                value={securityQuestion}
+                onChange={(e) => setSecurityQuestion(e.target.value)}
+                disabled={isPending}
+                className="text-sm"
+              />
+              {securityQuestion.trim() && (
+                <Input
+                  placeholder="Your answer (stored securely)"
+                  value={securityAnswer}
+                  onChange={(e) => setSecurityAnswer(e.target.value)}
+                  disabled={isPending}
+                  className="text-sm"
+                  type="password"
+                />
+              )}
+              <p className="text-[10px] text-muted-foreground">
+                If you forget your PIN, answering this question lets you reset
+                it.
+              </p>
+            </div>
+
             {error && (
               <div className="flex items-center gap-1.5 text-xs text-destructive">
                 <AlertCircle className="h-3.5 w-3.5 shrink-0" />
@@ -1032,11 +1375,13 @@ export function MasterAdminSetup({ onComplete }: MasterAdminSetupProps) {
 interface UsersTabProps {
   activeUser: User | null;
   onSetActiveUser: (user: User | null) => void;
+  onRenameUser?: (userId: bigint, newName: string) => void;
 }
 
 export default function UsersTab({
   activeUser,
   onSetActiveUser,
+  onRenameUser,
 }: UsersTabProps) {
   const { data: users = [], isLoading } = useUsers();
   const { mutateAsync: createUser, isPending: isCreating } = useCreateUser();
@@ -1189,6 +1534,8 @@ export default function UsersTab({
                 isActive={activeUser?.id === user.id}
                 activeUser={activeUser}
                 onSetActive={onSetActiveUser}
+                onRenameUser={onRenameUser}
+                allUsers={users}
               />
             ))}
           </div>

@@ -1,4 +1,13 @@
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -11,6 +20,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
+  Archive,
+  ArchiveRestore,
+  Calendar,
   CalendarClock,
   ChevronDown,
   ChevronLeft,
@@ -18,20 +30,27 @@ import {
   ChevronUp,
   GripVertical,
   History,
+  Layers,
+  ListChecks,
   Loader2,
   MessageSquare,
   Pencil,
+  Plus,
   Send,
   Trash2,
   UserCircle2,
 } from "lucide-react";
 import { useState } from "react";
-import type { Card, Tag } from "../backend.d";
+import type { Card, Swimlane, Tag } from "../backend.d";
 import {
+  useAddChecklistItem,
   useAddComment,
   useCardComments,
   useCardRevisions,
+  useChecklistItems,
+  useDeleteChecklistItem,
   useDeleteComment,
+  useUpdateChecklistItem,
 } from "../hooks/useQueries";
 import type { User } from "../hooks/useQueries";
 
@@ -41,6 +60,23 @@ function formatDueDate(dueDate: bigint): string {
   return new Date(Number(dueDate) / 1_000_000).toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
+  });
+}
+
+function formatCreatedDate(createdAt: bigint): string {
+  return new Date(Number(createdAt) / 1_000_000).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function formatCreatedDateTime(createdAt: bigint): string {
+  return new Date(Number(createdAt) / 1_000_000).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
   });
 }
 
@@ -118,9 +154,17 @@ interface KanbanCardProps {
   onAssign?: (userId: bigint | null) => Promise<void>;
   onUpdateTags?: (tagIds: bigint[]) => Promise<void>;
   onUpdateDueDate?: (dueDate: bigint | null) => Promise<void>;
+  onArchive?: (cardId: bigint) => Promise<void>;
+  onRestore?: (cardId: bigint) => Promise<void>;
+  onUpdateSwimlane?: (
+    cardId: bigint,
+    swimlaneId: bigint | null,
+  ) => Promise<void>;
   users?: User[];
   activeUser?: User | null;
   availableTags?: Tag[];
+  swimlanes?: Swimlane[];
+  swimlanesEnabled?: boolean;
   isMoving?: boolean;
   isDeleting?: boolean;
   /** When true the card is the drag overlay ghost — no drag listeners attached */
@@ -147,9 +191,14 @@ export default function KanbanCard({
   onAssign,
   onUpdateTags,
   onUpdateDueDate,
+  onArchive,
+  onRestore,
+  onUpdateSwimlane,
   users = [],
   activeUser = null,
   availableTags = [],
+  swimlanes = [],
+  swimlanesEnabled = false,
   isMoving = false,
   isDeleting = false,
   isOverlay = false,
@@ -159,17 +208,23 @@ export default function KanbanCard({
   onToggleSelect,
 }: KanbanCardProps) {
   const [modalOpen, setModalOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [editTitle, setEditTitle] = useState(card.title);
   const [editDesc, setEditDesc] = useState(card.description ?? "");
   const [isAssigning, setIsAssigning] = useState(false);
   const [isUpdatingTags, setIsUpdatingTags] = useState(false);
   const [isUpdatingDueDate, setIsUpdatingDueDate] = useState(false);
+  const [isUpdatingSwimlane, setIsUpdatingSwimlane] = useState(false);
+  const [isArchiving, setIsArchiving] = useState(false);
   const [editDueDate, setEditDueDate] = useState(
     card.dueDate ? dueDateToInputValue(card.dueDate) : "",
   );
   const [isSaving, setIsSaving] = useState(false);
   const [commentText, setCommentText] = useState("");
   const [showHistory, setShowHistory] = useState(false);
+  const [showChecklist, setShowChecklist] = useState(false);
+  const [newChecklistItem, setNewChecklistItem] = useState("");
+  const [isAddingChecklistItem, setIsAddingChecklistItem] = useState(false);
 
   // Hooks for comments & history — only load when modal is open
   const { data: comments = [], isLoading: commentsLoading } = useCardComments(
@@ -181,6 +236,89 @@ export default function KanbanCard({
     useAddComment();
   const { mutateAsync: deleteComment, isPending: isDeletingComment } =
     useDeleteComment();
+
+  // Checklist hooks
+  const { data: checklistItems = [], isLoading: checklistLoading } =
+    useChecklistItems(modalOpen ? card.id : null);
+  const { mutateAsync: addChecklistItem } = useAddChecklistItem();
+  const { mutateAsync: updateChecklistItem } = useUpdateChecklistItem();
+  const { mutateAsync: deleteChecklistItem } = useDeleteChecklistItem();
+
+  async function handleSwimlaneChange(value: string) {
+    if (!onUpdateSwimlane) return;
+    setIsUpdatingSwimlane(true);
+    try {
+      const swimlaneId = value === "none" ? null : BigInt(value);
+      await onUpdateSwimlane(card.id, swimlaneId);
+    } finally {
+      setIsUpdatingSwimlane(false);
+    }
+  }
+
+  async function handleArchive() {
+    if (!activeUser || !onArchive) return;
+    setIsArchiving(true);
+    try {
+      await onArchive(card.id);
+      setModalOpen(false);
+    } finally {
+      setIsArchiving(false);
+    }
+  }
+
+  async function handleRestore() {
+    if (!activeUser || !onRestore) return;
+    setIsArchiving(true);
+    try {
+      await onRestore(card.id);
+      setModalOpen(false);
+    } finally {
+      setIsArchiving(false);
+    }
+  }
+
+  async function handleAddChecklistItem() {
+    const trimmed = newChecklistItem.trim();
+    if (!trimmed || !activeUser) return;
+    setIsAddingChecklistItem(true);
+    try {
+      await addChecklistItem({
+        cardId: card.id,
+        text: trimmed,
+        actorUserId: activeUser.id,
+      });
+      setNewChecklistItem("");
+    } finally {
+      setIsAddingChecklistItem(false);
+    }
+  }
+
+  async function handleToggleChecklistItem(
+    itemId: bigint,
+    text: string,
+    isDone: boolean,
+  ) {
+    if (!activeUser) return;
+    await updateChecklistItem({
+      itemId,
+      text,
+      isDone: !isDone,
+      actorUserId: activeUser.id,
+      cardId: card.id,
+    });
+  }
+
+  async function handleDeleteChecklistItem(itemId: bigint) {
+    if (!activeUser) return;
+    await deleteChecklistItem({
+      itemId,
+      actorUserId: activeUser.id,
+      cardId: card.id,
+    });
+  }
+
+  const checklistDone = checklistItems.filter((i) => i.isDone).length;
+  const checklistTotal = checklistItems.length;
 
   const {
     attributes,
@@ -433,6 +571,44 @@ export default function KanbanCard({
           </div>
         )}
 
+        {/* Checklist progress chip */}
+        {checklistTotal > 0 && !isOverlay && (
+          <div
+            className={`mt-1.5 flex items-center gap-1 ${isSelectionMode ? "pl-6" : "pl-4"}`}
+          >
+            <ListChecks className="h-3 w-3 text-muted-foreground shrink-0" />
+            <span
+              className={`text-[10px] font-medium ${checklistDone === checklistTotal ? "text-emerald-600" : "text-muted-foreground"}`}
+            >
+              {checklistDone}/{checklistTotal}
+            </span>
+          </div>
+        )}
+
+        {/* Created date chip */}
+        {!isOverlay && (
+          <div
+            className={`mt-1.5 flex items-center gap-1 ${isSelectionMode ? "pl-6" : "pl-4"}`}
+          >
+            <Calendar className="h-3 w-3 text-muted-foreground/60 shrink-0" />
+            <span className="text-[10px] text-muted-foreground/60">
+              Created: {formatCreatedDate(card.createdAt)}
+            </span>
+          </div>
+        )}
+
+        {/* Archived badge */}
+        {card.isArchived && !isOverlay && (
+          <div
+            className={`mt-1.5 flex items-center gap-1 ${isSelectionMode ? "pl-6" : "pl-4"}`}
+          >
+            <Archive className="h-3 w-3 text-muted-foreground/50 shrink-0" />
+            <span className="text-[10px] text-muted-foreground/50 italic">
+              Archived
+            </span>
+          </div>
+        )}
+
         {/* Assignee chip */}
         {assignedUser && (
           <div
@@ -490,7 +666,10 @@ export default function KanbanCard({
             <button
               type="button"
               className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-              onClick={onDelete}
+              onClick={(e) => {
+                e.stopPropagation();
+                setDeleteConfirmOpen(true);
+              }}
               title="Delete card"
               aria-label="Delete card"
             >
@@ -508,6 +687,60 @@ export default function KanbanCard({
           </div>
         )}
       </div>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <AlertDialogContent className="max-w-sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-base font-display font-semibold">
+              Delete this card?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-sm">
+              This will permanently delete the card and cannot be undone.
+              Consider archiving it instead to keep history.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex flex-col gap-2 sm:flex-col">
+            {/* Archive is the primary/preferred action */}
+            {onArchive && activeUser && (
+              <Button
+                className="w-full gap-1.5"
+                onClick={async () => {
+                  setDeleteConfirmOpen(false);
+                  await onArchive(card.id);
+                }}
+                autoFocus
+              >
+                <Archive className="h-3.5 w-3.5" />
+                Archive instead (recommended)
+              </Button>
+            )}
+            {/* Delete permanently — destructive, requires explicit click */}
+            <Button
+              variant="destructive"
+              className="w-full gap-1.5"
+              onClick={(e) => {
+                // Prevent form/dialog default submission on Enter
+                e.preventDefault();
+                setDeleteConfirmOpen(false);
+                onDelete();
+              }}
+              type="button"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Delete permanently
+            </Button>
+            <Button
+              variant="ghost"
+              className="w-full"
+              onClick={() => setDeleteConfirmOpen(false)}
+              type="button"
+            >
+              Cancel
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Card Detail Modal */}
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
@@ -668,8 +901,50 @@ export default function KanbanCard({
                 </div>
               )}
 
-              {/* Save/Cancel */}
-              <div className="flex gap-2 pt-1">
+              {/* Created date (read-only) */}
+              <div className="space-y-1.5">
+                <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-1">
+                  <Calendar className="h-3 w-3" />
+                  Created
+                </p>
+                <p className="text-sm text-foreground/80">
+                  {formatCreatedDateTime(card.createdAt)}
+                </p>
+              </div>
+
+              {/* Swimlane selector */}
+              {swimlanesEnabled && swimlanes.length > 0 && onUpdateSwimlane && (
+                <div className="space-y-1.5">
+                  <label
+                    htmlFor={`card-swimlane-${card.id}`}
+                    className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-1"
+                  >
+                    <Layers className="h-3 w-3" />
+                    Swimlane
+                  </label>
+                  <select
+                    id={`card-swimlane-${card.id}`}
+                    className="w-full h-9 text-sm rounded-md border border-input bg-background px-3 text-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
+                    value={
+                      card.swimlaneId != null
+                        ? card.swimlaneId.toString()
+                        : "none"
+                    }
+                    onChange={(e) => handleSwimlaneChange(e.target.value)}
+                    disabled={isUpdatingSwimlane}
+                  >
+                    <option value="none">Default (no swimlane)</option>
+                    {swimlanes.map((sl) => (
+                      <option key={sl.id.toString()} value={sl.id.toString()}>
+                        {sl.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Save/Cancel + Archive */}
+              <div className="flex gap-2 pt-1 flex-wrap">
                 <Button
                   size="sm"
                   className="h-8 text-xs px-4"
@@ -694,6 +969,167 @@ export default function KanbanCard({
                 >
                   Cancel
                 </Button>
+                <div className="flex-1" />
+                {/* Archive / Restore */}
+                {activeUser &&
+                  (card.isArchived ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-8 text-xs px-3 gap-1.5 text-emerald-600 border-emerald-500/30 hover:bg-emerald-500/10"
+                      onClick={handleRestore}
+                      disabled={isArchiving || !onRestore}
+                      title="Restore this card"
+                    >
+                      {isArchiving ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <ArchiveRestore className="h-3.5 w-3.5" />
+                      )}
+                      Restore
+                    </Button>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-8 text-xs px-3 gap-1.5 text-muted-foreground hover:text-foreground"
+                      onClick={handleArchive}
+                      disabled={isArchiving || !onArchive}
+                      title="Archive this card"
+                    >
+                      {isArchiving ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Archive className="h-3.5 w-3.5" />
+                      )}
+                      Archive
+                    </Button>
+                  ))}
+              </div>
+
+              {/* Divider */}
+              <div className="h-px bg-border" />
+
+              {/* Checklist section */}
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  className="flex items-center gap-2 w-full text-left hover:text-foreground text-muted-foreground transition-colors group/cl"
+                  onClick={() => setShowChecklist((v) => !v)}
+                >
+                  <ListChecks className="h-4 w-4" />
+                  <span className="text-sm font-semibold text-foreground">
+                    Checklist
+                  </span>
+                  {checklistTotal > 0 && (
+                    <span
+                      className={`text-xs rounded-full px-2 py-0.5 font-medium ${checklistDone === checklistTotal ? "bg-emerald-500/15 text-emerald-600" : "bg-secondary text-muted-foreground"}`}
+                    >
+                      {checklistDone}/{checklistTotal}
+                    </span>
+                  )}
+                  <span className="ml-auto">
+                    {showChecklist ? (
+                      <ChevronUp className="h-4 w-4" />
+                    ) : (
+                      <ChevronDown className="h-4 w-4" />
+                    )}
+                  </span>
+                </button>
+
+                {showChecklist && (
+                  <div className="space-y-1.5 pl-1">
+                    {checklistLoading ? (
+                      <div className="space-y-1.5">
+                        {[0, 1].map((i) => (
+                          <div
+                            key={i}
+                            className="h-8 rounded bg-secondary/50 animate-pulse"
+                          />
+                        ))}
+                      </div>
+                    ) : checklistItems.length === 0 ? (
+                      <p className="text-xs text-muted-foreground py-1">
+                        No items yet.
+                      </p>
+                    ) : (
+                      [...checklistItems]
+                        .sort((a, b) => Number(a.order - b.order))
+                        .map((item) => (
+                          <div
+                            key={item.id.toString()}
+                            className="group/ci flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-secondary/40 transition-colors"
+                          >
+                            <Checkbox
+                              id={`ci-${item.id}`}
+                              checked={item.isDone}
+                              onCheckedChange={() =>
+                                handleToggleChecklistItem(
+                                  item.id,
+                                  item.text,
+                                  item.isDone,
+                                )
+                              }
+                              disabled={!activeUser}
+                              className="shrink-0"
+                            />
+                            <label
+                              htmlFor={`ci-${item.id}`}
+                              className={`flex-1 text-xs cursor-pointer select-none ${item.isDone ? "line-through text-muted-foreground" : "text-foreground"}`}
+                            >
+                              {item.text}
+                            </label>
+                            {activeUser && (
+                              <button
+                                type="button"
+                                className="opacity-0 group-hover/ci:opacity-100 transition-opacity h-5 w-5 flex items-center justify-center rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 shrink-0"
+                                onClick={() =>
+                                  handleDeleteChecklistItem(item.id)
+                                }
+                                title="Remove item"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </button>
+                            )}
+                          </div>
+                        ))
+                    )}
+
+                    {/* Add checklist item */}
+                    {activeUser && (
+                      <div className="flex items-center gap-1.5 pt-1">
+                        <Input
+                          value={newChecklistItem}
+                          onChange={(e) => setNewChecklistItem(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              handleAddChecklistItem();
+                            }
+                          }}
+                          placeholder="Add item…"
+                          className="h-7 text-xs flex-1"
+                          disabled={isAddingChecklistItem}
+                        />
+                        <Button
+                          size="sm"
+                          className="h-7 w-7 p-0 shrink-0"
+                          onClick={handleAddChecklistItem}
+                          disabled={
+                            !newChecklistItem.trim() || isAddingChecklistItem
+                          }
+                          title="Add item"
+                        >
+                          {isAddingChecklistItem ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <Plus className="h-3 w-3" />
+                          )}
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Divider */}
