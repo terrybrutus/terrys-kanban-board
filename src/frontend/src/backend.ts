@@ -95,13 +95,37 @@ export interface ColumnView {
     projectId: bigint;
     cardIds: Array<bigint>;
 }
+export interface Tag {
+    id: bigint;
+    name: string;
+    color: string;
+    projectId: bigint;
+}
+export interface Comment {
+    id: bigint;
+    authorId: bigint;
+    text: string;
+    authorName: string;
+    timestamp: bigint;
+    cardId: bigint;
+}
 export interface Card {
     id: bigint;
     title: string;
+    createdAt: bigint;
+    tags: Array<bigint>;
+    dueDate?: bigint;
     description?: string;
     projectId: bigint;
     assignedUserId?: bigint;
     columnId: bigint;
+}
+export interface User {
+    id: bigint;
+    isMasterAdmin: boolean;
+    name: string;
+    pinHash: string;
+    isAdmin: boolean;
 }
 export interface Project {
     id: bigint;
@@ -116,43 +140,81 @@ export interface Revision {
     cardId?: bigint;
     revisionType: string;
 }
-export interface User {
+export interface FilterPreset {
     id: bigint;
+    dateTo: string;
+    assigneeId?: bigint;
+    createdByUserId: bigint;
     name: string;
-    pinHash: string;
+    tagIds: Array<bigint>;
+    projectId: bigint;
+    textSearch: string;
+    unassignedOnly: boolean;
+    dateFrom: string;
+    dateField?: string;
 }
 export interface backendInterface {
+    addComment(cardId: bigint, text: string, actorUserId: bigint): Promise<bigint>;
     assignCard(cardId: bigint, userId: bigint | null, actorUserId: bigint): Promise<void>;
     changeUserPin(userId: bigint, oldPinHash: string, newPinHash: string): Promise<void>;
     clearRevisions(): Promise<void>;
     createCard(title: string, description: string | null, columnId: bigint, actorUserId: bigint, projectId: bigint): Promise<bigint>;
     createColumn(name: string, actorUserId: bigint, projectId: bigint): Promise<bigint>;
     createProject(name: string, actorUserId: bigint): Promise<bigint>;
+    createTag(projectId: bigint, name: string, color: string, actorUserId: bigint): Promise<bigint>;
     createUser(name: string, pinHash: string): Promise<bigint>;
     deleteCard(cardId: bigint, actorUserId: bigint): Promise<void>;
     deleteColumn(columnId: bigint, actorUserId: bigint): Promise<void>;
+    deleteComment(commentId: bigint, actorUserId: bigint): Promise<void>;
+    deleteFilterPreset(presetId: bigint, actorUserId: bigint): Promise<void>;
     deleteProject(projectId: bigint, actorUserId: bigint): Promise<void>;
-    deleteUser(id: bigint): Promise<void>;
+    deleteTag(tagId: bigint, actorUserId: bigint): Promise<void>;
+    deleteUser(userId: bigint, actorUserId: bigint): Promise<void>;
+    demoteUser(userId: bigint, actorUserId: bigint): Promise<void>;
+    getCardComments(cardId: bigint): Promise<Array<Comment>>;
     getCardRevisions(cardId: bigint): Promise<Array<Revision>>;
     getCards(projectId: bigint): Promise<Array<Card>>;
     getColumns(projectId: bigint): Promise<Array<ColumnView>>;
+    getFilterPresets(projectId: bigint): Promise<Array<FilterPreset>>;
+    getProjectTags(projectId: bigint): Promise<Array<Tag>>;
     getProjects(): Promise<Array<Project>>;
     getRevisions(projectId: bigint): Promise<Array<Revision>>;
     getUsers(): Promise<Array<User>>;
     initBoard(): Promise<void>;
     initDefaultProject(): Promise<bigint>;
+    isAdminSetup(): Promise<boolean>;
     moveCard(cardId: bigint, targetColumnId: bigint, newPosition: bigint, actorUserId: bigint): Promise<void>;
+    moveCards(cardIds: Array<bigint>, targetColumnId: bigint, actorUserId: bigint): Promise<void>;
+    promoteUser(userId: bigint, actorUserId: bigint): Promise<void>;
     renameColumn(columnId: bigint, newName: string, actorUserId: bigint): Promise<void>;
     renameProject(projectId: bigint, newName: string, actorUserId: bigint): Promise<void>;
+    renameTag(tagId: bigint, newName: string, actorUserId: bigint): Promise<void>;
     reorderColumns(newOrder: Array<bigint>, actorUserId: bigint): Promise<void>;
-    resetUserPin(userId: bigint, adminPinHash: string, newPinHash: string): Promise<void>;
-    setAdminPin(newPinHash: string): Promise<void>;
+    resetUserPin(userId: bigint, actorUserId: bigint, newPinHash: string): Promise<void>;
+    saveFilterPreset(projectId: bigint, createdByUserId: bigint, name: string, assigneeId: bigint | null, tagIds: Array<bigint>, unassignedOnly: boolean, textSearch: string, dateField: string | null, dateFrom: string, dateTo: string): Promise<bigint>;
+    setupMasterAdmin(name: string, pinHash: string): Promise<bigint>;
     updateCard(cardId: bigint, title: string, description: string | null, actorUserId: bigint): Promise<void>;
+    updateCardDueDate(cardId: bigint, dueDate: bigint | null, actorUserId: bigint): Promise<void>;
+    updateCardTags(cardId: bigint, tagIds: Array<bigint>, actorUserId: bigint): Promise<void>;
     verifyPin(userId: bigint, pinHash: string): Promise<boolean>;
 }
-import type { Card as _Card, Revision as _Revision } from "./declarations/backend.did.d.ts";
+import type { Card as _Card, FilterPreset as _FilterPreset, Revision as _Revision } from "./declarations/backend.did.d.ts";
 export class Backend implements backendInterface {
     constructor(private actor: ActorSubclass<_SERVICE>, private _uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, private _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, private processError?: (error: unknown) => never){}
+    async addComment(arg0: bigint, arg1: string, arg2: bigint): Promise<bigint> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.addComment(arg0, arg1, arg2);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.addComment(arg0, arg1, arg2);
+            return result;
+        }
+    }
     async assignCard(arg0: bigint, arg1: bigint | null, arg2: bigint): Promise<void> {
         if (this.processError) {
             try {
@@ -237,6 +299,20 @@ export class Backend implements backendInterface {
             return result;
         }
     }
+    async createTag(arg0: bigint, arg1: string, arg2: string, arg3: bigint): Promise<bigint> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.createTag(arg0, arg1, arg2, arg3);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.createTag(arg0, arg1, arg2, arg3);
+            return result;
+        }
+    }
     async createUser(arg0: string, arg1: string): Promise<bigint> {
         if (this.processError) {
             try {
@@ -279,6 +355,34 @@ export class Backend implements backendInterface {
             return result;
         }
     }
+    async deleteComment(arg0: bigint, arg1: bigint): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.deleteComment(arg0, arg1);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.deleteComment(arg0, arg1);
+            return result;
+        }
+    }
+    async deleteFilterPreset(arg0: bigint, arg1: bigint): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.deleteFilterPreset(arg0, arg1);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.deleteFilterPreset(arg0, arg1);
+            return result;
+        }
+    }
     async deleteProject(arg0: bigint, arg1: bigint): Promise<void> {
         if (this.processError) {
             try {
@@ -293,17 +397,59 @@ export class Backend implements backendInterface {
             return result;
         }
     }
-    async deleteUser(arg0: bigint): Promise<void> {
+    async deleteTag(arg0: bigint, arg1: bigint): Promise<void> {
         if (this.processError) {
             try {
-                const result = await this.actor.deleteUser(arg0);
+                const result = await this.actor.deleteTag(arg0, arg1);
                 return result;
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.deleteUser(arg0);
+            const result = await this.actor.deleteTag(arg0, arg1);
+            return result;
+        }
+    }
+    async deleteUser(arg0: bigint, arg1: bigint): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.deleteUser(arg0, arg1);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.deleteUser(arg0, arg1);
+            return result;
+        }
+    }
+    async demoteUser(arg0: bigint, arg1: bigint): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.demoteUser(arg0, arg1);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.demoteUser(arg0, arg1);
+            return result;
+        }
+    }
+    async getCardComments(arg0: bigint): Promise<Array<Comment>> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getCardComments(arg0);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getCardComments(arg0);
             return result;
         }
     }
@@ -346,6 +492,34 @@ export class Backend implements backendInterface {
             }
         } else {
             const result = await this.actor.getColumns(arg0);
+            return result;
+        }
+    }
+    async getFilterPresets(arg0: bigint): Promise<Array<FilterPreset>> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getFilterPresets(arg0);
+                return from_candid_vec_n12(this._uploadFile, this._downloadFile, result);
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getFilterPresets(arg0);
+            return from_candid_vec_n12(this._uploadFile, this._downloadFile, result);
+        }
+    }
+    async getProjectTags(arg0: bigint): Promise<Array<Tag>> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getProjectTags(arg0);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getProjectTags(arg0);
             return result;
         }
     }
@@ -419,6 +593,20 @@ export class Backend implements backendInterface {
             return result;
         }
     }
+    async isAdminSetup(): Promise<boolean> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.isAdminSetup();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.isAdminSetup();
+            return result;
+        }
+    }
     async moveCard(arg0: bigint, arg1: bigint, arg2: bigint, arg3: bigint): Promise<void> {
         if (this.processError) {
             try {
@@ -430,6 +618,34 @@ export class Backend implements backendInterface {
             }
         } else {
             const result = await this.actor.moveCard(arg0, arg1, arg2, arg3);
+            return result;
+        }
+    }
+    async moveCards(arg0: Array<bigint>, arg1: bigint, arg2: bigint): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.moveCards(arg0, arg1, arg2);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.moveCards(arg0, arg1, arg2);
+            return result;
+        }
+    }
+    async promoteUser(arg0: bigint, arg1: bigint): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.promoteUser(arg0, arg1);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.promoteUser(arg0, arg1);
             return result;
         }
     }
@@ -461,6 +677,20 @@ export class Backend implements backendInterface {
             return result;
         }
     }
+    async renameTag(arg0: bigint, arg1: string, arg2: bigint): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.renameTag(arg0, arg1, arg2);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.renameTag(arg0, arg1, arg2);
+            return result;
+        }
+    }
     async reorderColumns(arg0: Array<bigint>, arg1: bigint): Promise<void> {
         if (this.processError) {
             try {
@@ -475,7 +705,7 @@ export class Backend implements backendInterface {
             return result;
         }
     }
-    async resetUserPin(arg0: bigint, arg1: string, arg2: string): Promise<void> {
+    async resetUserPin(arg0: bigint, arg1: bigint, arg2: string): Promise<void> {
         if (this.processError) {
             try {
                 const result = await this.actor.resetUserPin(arg0, arg1, arg2);
@@ -489,17 +719,31 @@ export class Backend implements backendInterface {
             return result;
         }
     }
-    async setAdminPin(arg0: string): Promise<void> {
+    async saveFilterPreset(arg0: bigint, arg1: bigint, arg2: string, arg3: bigint | null, arg4: Array<bigint>, arg5: boolean, arg6: string, arg7: string | null, arg8: string, arg9: string): Promise<bigint> {
         if (this.processError) {
             try {
-                const result = await this.actor.setAdminPin(arg0);
+                const result = await this.actor.saveFilterPreset(arg0, arg1, arg2, to_candid_opt_n1(this._uploadFile, this._downloadFile, arg3), arg4, arg5, arg6, to_candid_opt_n2(this._uploadFile, this._downloadFile, arg7), arg8, arg9);
                 return result;
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.setAdminPin(arg0);
+            const result = await this.actor.saveFilterPreset(arg0, arg1, arg2, to_candid_opt_n1(this._uploadFile, this._downloadFile, arg3), arg4, arg5, arg6, to_candid_opt_n2(this._uploadFile, this._downloadFile, arg7), arg8, arg9);
+            return result;
+        }
+    }
+    async setupMasterAdmin(arg0: string, arg1: string): Promise<bigint> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.setupMasterAdmin(arg0, arg1);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.setupMasterAdmin(arg0, arg1);
             return result;
         }
     }
@@ -514,6 +758,34 @@ export class Backend implements backendInterface {
             }
         } else {
             const result = await this.actor.updateCard(arg0, arg1, to_candid_opt_n2(this._uploadFile, this._downloadFile, arg2), arg3);
+            return result;
+        }
+    }
+    async updateCardDueDate(arg0: bigint, arg1: bigint | null, arg2: bigint): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.updateCardDueDate(arg0, to_candid_opt_n15(this._uploadFile, this._downloadFile, arg1), arg2);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.updateCardDueDate(arg0, to_candid_opt_n15(this._uploadFile, this._downloadFile, arg1), arg2);
+            return result;
+        }
+    }
+    async updateCardTags(arg0: bigint, arg1: Array<bigint>, arg2: bigint): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.updateCardTags(arg0, arg1, arg2);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.updateCardTags(arg0, arg1, arg2);
             return result;
         }
     }
@@ -535,14 +807,59 @@ export class Backend implements backendInterface {
 function from_candid_Card_n8(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _Card): Card {
     return from_candid_record_n9(_uploadFile, _downloadFile, value);
 }
+function from_candid_FilterPreset_n13(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _FilterPreset): FilterPreset {
+    return from_candid_record_n14(_uploadFile, _downloadFile, value);
+}
 function from_candid_Revision_n4(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: _Revision): Revision {
     return from_candid_record_n5(_uploadFile, _downloadFile, value);
 }
-function from_candid_opt_n10(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [string]): string | null {
+function from_candid_opt_n10(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [bigint]): bigint | null {
+    return value.length === 0 ? null : value[0];
+}
+function from_candid_opt_n11(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [string]): string | null {
     return value.length === 0 ? null : value[0];
 }
 function from_candid_opt_n6(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: [] | [bigint]): bigint | null {
     return value.length === 0 ? null : value[0];
+}
+function from_candid_record_n14(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
+    id: bigint;
+    dateTo: string;
+    assigneeId: [] | [bigint];
+    createdByUserId: bigint;
+    name: string;
+    tagIds: Array<bigint>;
+    projectId: bigint;
+    textSearch: string;
+    unassignedOnly: boolean;
+    dateFrom: string;
+    dateField: [] | [string];
+}): {
+    id: bigint;
+    dateTo: string;
+    assigneeId?: bigint;
+    createdByUserId: bigint;
+    name: string;
+    tagIds: Array<bigint>;
+    projectId: bigint;
+    textSearch: string;
+    unassignedOnly: boolean;
+    dateFrom: string;
+    dateField?: string;
+} {
+    return {
+        id: value.id,
+        dateTo: value.dateTo,
+        assigneeId: record_opt_to_undefined(from_candid_opt_n6(_uploadFile, _downloadFile, value.assigneeId)),
+        createdByUserId: value.createdByUserId,
+        name: value.name,
+        tagIds: value.tagIds,
+        projectId: value.projectId,
+        textSearch: value.textSearch,
+        unassignedOnly: value.unassignedOnly,
+        dateFrom: value.dateFrom,
+        dateField: record_opt_to_undefined(from_candid_opt_n11(_uploadFile, _downloadFile, value.dateField))
+    };
 }
 function from_candid_record_n5(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
     id: bigint;
@@ -574,6 +891,9 @@ function from_candid_record_n5(_uploadFile: (file: ExternalBlob) => Promise<Uint
 function from_candid_record_n9(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: {
     id: bigint;
     title: string;
+    createdAt: bigint;
+    tags: Array<bigint>;
+    dueDate: [] | [bigint];
     description: [] | [string];
     projectId: bigint;
     assignedUserId: [] | [bigint];
@@ -581,6 +901,9 @@ function from_candid_record_n9(_uploadFile: (file: ExternalBlob) => Promise<Uint
 }): {
     id: bigint;
     title: string;
+    createdAt: bigint;
+    tags: Array<bigint>;
+    dueDate?: bigint;
     description?: string;
     projectId: bigint;
     assignedUserId?: bigint;
@@ -589,11 +912,17 @@ function from_candid_record_n9(_uploadFile: (file: ExternalBlob) => Promise<Uint
     return {
         id: value.id,
         title: value.title,
-        description: record_opt_to_undefined(from_candid_opt_n10(_uploadFile, _downloadFile, value.description)),
+        createdAt: value.createdAt,
+        tags: value.tags,
+        dueDate: record_opt_to_undefined(from_candid_opt_n10(_uploadFile, _downloadFile, value.dueDate)),
+        description: record_opt_to_undefined(from_candid_opt_n11(_uploadFile, _downloadFile, value.description)),
         projectId: value.projectId,
         assignedUserId: record_opt_to_undefined(from_candid_opt_n6(_uploadFile, _downloadFile, value.assignedUserId)),
         columnId: value.columnId
     };
+}
+function from_candid_vec_n12(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: Array<_FilterPreset>): Array<FilterPreset> {
+    return value.map((x)=>from_candid_FilterPreset_n13(_uploadFile, _downloadFile, x));
 }
 function from_candid_vec_n3(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: Array<_Revision>): Array<Revision> {
     return value.map((x)=>from_candid_Revision_n4(_uploadFile, _downloadFile, x));
@@ -602,6 +931,9 @@ function from_candid_vec_n7(_uploadFile: (file: ExternalBlob) => Promise<Uint8Ar
     return value.map((x)=>from_candid_Card_n8(_uploadFile, _downloadFile, x));
 }
 function to_candid_opt_n1(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: bigint | null): [] | [bigint] {
+    return value === null ? candid_none() : candid_some(value);
+}
+function to_candid_opt_n15(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: bigint | null): [] | [bigint] {
     return value === null ? candid_none() : candid_some(value);
 }
 function to_candid_opt_n2(_uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, value: string | null): [] | [string] {

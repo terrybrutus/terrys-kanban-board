@@ -13,6 +13,9 @@ import type { Principal } from '@icp-sdk/core/principal';
 export interface Card {
   'id' : bigint,
   'title' : string,
+  'createdAt' : bigint,
+  'tags' : Array<bigint>,
+  'dueDate' : [] | [bigint],
   'description' : [] | [string],
   'projectId' : bigint,
   'assignedUserId' : [] | [bigint],
@@ -24,6 +27,27 @@ export interface ColumnView {
   'projectId' : bigint,
   'cardIds' : Array<bigint>,
 }
+export interface Comment {
+  'id' : bigint,
+  'authorId' : bigint,
+  'text' : string,
+  'authorName' : string,
+  'timestamp' : bigint,
+  'cardId' : bigint,
+}
+export interface FilterPreset {
+  'id' : bigint,
+  'dateTo' : string,
+  'assigneeId' : [] | [bigint],
+  'createdByUserId' : bigint,
+  'name' : string,
+  'tagIds' : Array<bigint>,
+  'projectId' : bigint,
+  'textSearch' : string,
+  'unassignedOnly' : boolean,
+  'dateFrom' : string,
+  'dateField' : [] | [string],
+}
 export interface Project { 'id' : bigint, 'name' : string }
 export interface Revision {
   'id' : bigint,
@@ -34,8 +58,21 @@ export interface Revision {
   'cardId' : [] | [bigint],
   'revisionType' : string,
 }
-export interface User { 'id' : bigint, 'name' : string, 'pinHash' : string }
+export interface Tag {
+  'id' : bigint,
+  'name' : string,
+  'color' : string,
+  'projectId' : bigint,
+}
+export interface User {
+  'id' : bigint,
+  'isMasterAdmin' : boolean,
+  'name' : string,
+  'pinHash' : string,
+  'isAdmin' : boolean,
+}
 export interface _SERVICE {
+  'addComment' : ActorMethod<[bigint, string, bigint], bigint>,
   'assignCard' : ActorMethod<[bigint, [] | [bigint], bigint], undefined>,
   'changeUserPin' : ActorMethod<[bigint, string, string], undefined>,
   'clearRevisions' : ActorMethod<[], undefined>,
@@ -45,29 +82,58 @@ export interface _SERVICE {
   >,
   'createColumn' : ActorMethod<[string, bigint, bigint], bigint>,
   'createProject' : ActorMethod<[string, bigint], bigint>,
+  'createTag' : ActorMethod<[bigint, string, string, bigint], bigint>,
   'createUser' : ActorMethod<[string, string], bigint>,
   'deleteCard' : ActorMethod<[bigint, bigint], undefined>,
   'deleteColumn' : ActorMethod<[bigint, bigint], undefined>,
+  'deleteComment' : ActorMethod<[bigint, bigint], undefined>,
+  'deleteFilterPreset' : ActorMethod<[bigint, bigint], undefined>,
   'deleteProject' : ActorMethod<[bigint, bigint], undefined>,
-  'deleteUser' : ActorMethod<[bigint], undefined>,
+  'deleteTag' : ActorMethod<[bigint, bigint], undefined>,
+  'deleteUser' : ActorMethod<[bigint, bigint], undefined>,
+  'demoteUser' : ActorMethod<[bigint, bigint], undefined>,
+  'getCardComments' : ActorMethod<[bigint], Array<Comment>>,
   'getCardRevisions' : ActorMethod<[bigint], Array<Revision>>,
   'getCards' : ActorMethod<[bigint], Array<Card>>,
   'getColumns' : ActorMethod<[bigint], Array<ColumnView>>,
+  'getFilterPresets' : ActorMethod<[bigint], Array<FilterPreset>>,
+  'getProjectTags' : ActorMethod<[bigint], Array<Tag>>,
   'getProjects' : ActorMethod<[], Array<Project>>,
   'getRevisions' : ActorMethod<[bigint], Array<Revision>>,
   'getUsers' : ActorMethod<[], Array<User>>,
   'initBoard' : ActorMethod<[], undefined>,
   'initDefaultProject' : ActorMethod<[], bigint>,
+  'isAdminSetup' : ActorMethod<[], boolean>,
   'moveCard' : ActorMethod<[bigint, bigint, bigint, bigint], undefined>,
+  'moveCards' : ActorMethod<[Array<bigint>, bigint, bigint], undefined>,
+  'promoteUser' : ActorMethod<[bigint, bigint], undefined>,
   'renameColumn' : ActorMethod<[bigint, string, bigint], undefined>,
   'renameProject' : ActorMethod<[bigint, string, bigint], undefined>,
+  'renameTag' : ActorMethod<[bigint, string, bigint], undefined>,
   'reorderColumns' : ActorMethod<[Array<bigint>, bigint], undefined>,
-  'resetUserPin' : ActorMethod<[bigint, string, string], undefined>,
-  'setAdminPin' : ActorMethod<[string], undefined>,
+  'resetUserPin' : ActorMethod<[bigint, bigint, string], undefined>,
+  'saveFilterPreset' : ActorMethod<
+    [
+      bigint,
+      bigint,
+      string,
+      [] | [bigint],
+      Array<bigint>,
+      boolean,
+      string,
+      [] | [string],
+      string,
+      string,
+    ],
+    bigint
+  >,
+  'setupMasterAdmin' : ActorMethod<[string, string], bigint>,
   'updateCard' : ActorMethod<
     [bigint, string, [] | [string], bigint],
     undefined
   >,
+  'updateCardDueDate' : ActorMethod<[bigint, [] | [bigint], bigint], undefined>,
+  'updateCardTags' : ActorMethod<[bigint, Array<bigint>, bigint], undefined>,
   'verifyPin' : ActorMethod<[bigint, string], boolean>,
 }
 export declare const idlService: IDL.ServiceClass;

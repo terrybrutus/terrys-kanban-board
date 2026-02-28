@@ -1,4 +1,17 @@
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Toaster } from "@/components/ui/sonner";
 import {
@@ -18,20 +31,31 @@ import {
   horizontalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import {
+  ChevronDown,
   Clock,
+  Crown,
   Kanban,
   LayoutDashboard,
   Loader2,
   Plus,
+  Shield,
+  Tag,
   Users,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { Card, ColumnView } from "./backend.d";
 import ActivityTab from "./components/ActivityTab";
+import FilterBar, {
+  EMPTY_FILTER,
+  type FilterState,
+} from "./components/FilterBar";
 import KanbanCard from "./components/KanbanCard";
 import KanbanColumn from "./components/KanbanColumn";
 import ProjectSwitcher from "./components/ProjectSwitcher";
+import TagsModal from "./components/TagsModal";
+import { hashPin } from "./components/UsersTab";
+import { MasterAdminSetup } from "./components/UsersTab";
 import UsersTab from "./components/UsersTab";
 import { useActor } from "./hooks/useActor";
 import {
@@ -42,12 +66,21 @@ import {
   useCreateColumn,
   useDeleteCard,
   useDeleteColumn,
+  useDeleteFilterPreset,
+  useFilterPresets,
   useInitDefaultProject,
+  useIsAdminSetup,
   useMoveCard,
+  useMoveCards,
+  useProjectTags,
   useRenameColumn,
   useReorderColumns,
+  useSaveFilterPreset,
   useUpdateCard,
+  useUpdateCardDueDate,
+  useUpdateCardTags,
   useUsers,
+  useVerifyPin,
 } from "./hooks/useQueries";
 import type { User } from "./hooks/useQueries";
 
@@ -55,6 +88,15 @@ type TabId = "board" | "users" | "activity";
 
 export default function App() {
   const { actor, isFetching: actorFetching } = useActor();
+
+  // ── Admin setup check ───────────────────────────────────────────────────────
+  const { data: isAdminSetupDone, isLoading: isAdminSetupLoading } =
+    useIsAdminSetup();
+  const [adminSetupComplete, setAdminSetupComplete] = useState(false);
+
+  // Show setup overlay if master admin not yet created
+  const showSetupOverlay =
+    !isAdminSetupLoading && isAdminSetupDone === false && !adminSetupComplete;
 
   // ── Active project state ────────────────────────────────────────────────────
   const [activeProjectId, setActiveProjectId] = useState<bigint | null>(null);
@@ -64,6 +106,10 @@ export default function App() {
   const { data: cards = [], isLoading: cardsLoading } =
     useCards(activeProjectId);
   const { data: users = [] } = useUsers();
+  const { data: projectTags = [] } = useProjectTags(activeProjectId);
+  const { data: filterPresets = [] } = useFilterPresets(activeProjectId);
+  const { mutateAsync: saveFilterPreset } = useSaveFilterPreset();
+  const { mutateAsync: deleteFilterPreset } = useDeleteFilterPreset();
 
   // ── Init default project on first actor availability ────────────────────────
   const { mutateAsync: initDefaultProject } = useInitDefaultProject();
@@ -88,6 +134,23 @@ export default function App() {
   // ── Active user (local session) ─────────────────────────────────────────────
   const [activeUser, setActiveUser] = useState<User | null>(null);
 
+  // When users list refreshes (e.g. after promote/demote), re-sync active user
+  useEffect(() => {
+    if (activeUser && users.length > 0) {
+      const updated = users.find((u) => u.id === activeUser.id);
+      if (
+        updated &&
+        (updated.isAdmin !== activeUser.isAdmin ||
+          updated.isMasterAdmin !== activeUser.isMasterAdmin)
+      ) {
+        setActiveUser(updated);
+      }
+    }
+  }, [users, activeUser]);
+
+  // ── Tags modal ──────────────────────────────────────────────────────────────
+  const [showTagsModal, setShowTagsModal] = useState(false);
+
   // ── Auth gate helper ────────────────────────────────────────────────────────
   function requireActiveUser(): boolean {
     if (!activeUser) {
@@ -108,7 +171,21 @@ export default function App() {
   const { mutateAsync: updateCard } = useUpdateCard();
   const { mutateAsync: deleteCard } = useDeleteCard();
   const { mutateAsync: moveCard } = useMoveCard();
+  const { mutateAsync: moveCards } = useMoveCards();
   const { mutateAsync: assignCard } = useAssignCard();
+  const { mutateAsync: updateCardTags } = useUpdateCardTags();
+  const { mutateAsync: updateCardDueDate } = useUpdateCardDueDate();
+
+  // ── Filter state ────────────────────────────────────────────────────────────
+  const [filters, setFilters] = useState<FilterState>(EMPTY_FILTER);
+
+  // ── Quick user switcher state ────────────────────────────────────────────────
+  const [switcherOpen, setSwitcherOpen] = useState(false);
+  const [switcherTarget, setSwitcherTarget] = useState<User | null>(null);
+  const [switcherPin, setSwitcherPin] = useState("");
+  const [switcherError, setSwitcherError] = useState("");
+  const [switcherVerifying, setSwitcherVerifying] = useState(false);
+  const { mutateAsync: verifyPin } = useVerifyPin();
 
   // ── Add column state ────────────────────────────────────────────────────────
   const [addingColumn, setAddingColumn] = useState(false);
@@ -310,6 +387,210 @@ export default function App() {
     },
     [assignCard, activeUser, activeProjectId],
   );
+
+  const handleUpdateCardTags = useCallback(
+    async (cardId: bigint, tagIds: bigint[]) => {
+      if (!activeUser) {
+        toast.error("Please set yourself as active in the Users tab first");
+        throw new Error("No active user");
+      }
+      if (!activeProjectId) throw new Error("No active project");
+      try {
+        await updateCardTags({
+          cardId,
+          tagIds,
+          actorUserId: activeUser.id,
+          projectId: activeProjectId,
+        });
+      } catch (err) {
+        if (err instanceof Error && err.message === "No active user") throw err;
+        toast.error("Failed to update tags");
+        throw new Error("Failed to update tags");
+      }
+    },
+    [updateCardTags, activeUser, activeProjectId],
+  );
+
+  const handleUpdateCardDueDate = useCallback(
+    async (cardId: bigint, dueDate: bigint | null) => {
+      if (!activeUser) {
+        toast.error("Please set yourself as active in the Users tab first");
+        throw new Error("No active user");
+      }
+      if (!activeProjectId) throw new Error("No active project");
+      try {
+        await updateCardDueDate({
+          cardId,
+          dueDate,
+          actorUserId: activeUser.id,
+          projectId: activeProjectId,
+        });
+      } catch (err) {
+        if (err instanceof Error && err.message === "No active user") throw err;
+        toast.error("Failed to update due date");
+        throw new Error("Failed to update due date");
+      }
+    },
+    [updateCardDueDate, activeUser, activeProjectId],
+  );
+
+  // ── Filter preset handlers ──────────────────────────────────────────────────
+  const handleSavePreset = useCallback(
+    async (name: string) => {
+      if (!activeUser || !activeProjectId) {
+        toast.error("Please set yourself as active first");
+        throw new Error("No active user or project");
+      }
+      try {
+        await saveFilterPreset({
+          projectId: activeProjectId,
+          createdByUserId: activeUser.id,
+          name,
+          assigneeId: filters.assigneeId,
+          tagIds: filters.tagIds.map((id) => BigInt(id)),
+          unassignedOnly: filters.unassignedOnly,
+          textSearch: filters.textSearch,
+          dateField: filters.dateField,
+          dateFrom: filters.dateFrom,
+          dateTo: filters.dateTo,
+        });
+        toast.success(`Preset "${name}" saved`);
+      } catch {
+        toast.error("Failed to save preset");
+        throw new Error("Failed to save preset");
+      }
+    },
+    [saveFilterPreset, activeUser, activeProjectId, filters],
+  );
+
+  const handleDeletePreset = useCallback(
+    async (presetId: bigint) => {
+      if (!activeUser) {
+        toast.error("Please set yourself as active first");
+        throw new Error("No active user");
+      }
+      try {
+        await deleteFilterPreset({ presetId, actorUserId: activeUser.id });
+        toast.success("Preset deleted");
+      } catch {
+        toast.error("Failed to delete preset");
+        throw new Error("Failed to delete preset");
+      }
+    },
+    [deleteFilterPreset, activeUser],
+  );
+
+  const handleApplyPreset = useCallback(
+    (preset: import("./backend.d").FilterPreset) => {
+      setFilters({
+        assigneeId: preset.assigneeId ?? null,
+        tagIds: preset.tagIds.map((id) => id.toString()),
+        unassignedOnly: preset.unassignedOnly,
+        textSearch: preset.textSearch,
+        dateField:
+          (preset.dateField as "createdAt" | "dueDate" | undefined) ?? null,
+        dateFrom: preset.dateFrom,
+        dateTo: preset.dateTo,
+      });
+      toast.success(`Applied preset "${preset.name}"`);
+    },
+    [],
+  );
+
+  // ── Multi-move handler ──────────────────────────────────────────────────────
+  const handleMoveCards = useCallback(
+    async (cardIds: bigint[], targetColumnId: bigint) => {
+      if (!activeUser) {
+        toast.error("Please set yourself as active in the Users tab first");
+        throw new Error("No active user");
+      }
+      try {
+        await moveCards({
+          cardIds,
+          targetColumnId,
+          actorUserId: activeUser.id,
+          projectId: activeProjectId ?? undefined,
+        });
+      } catch (err) {
+        if (err instanceof Error && err.message === "No active user") throw err;
+        toast.error("Failed to move cards");
+        throw new Error("Failed to move cards");
+      }
+    },
+    [moveCards, activeUser, activeProjectId],
+  );
+
+  // ── Quick switcher: confirm PIN ─────────────────────────────────────────────
+  async function handleSwitcherConfirm() {
+    if (!switcherTarget || switcherPin.length !== 4) return;
+    setSwitcherVerifying(true);
+    setSwitcherError("");
+    try {
+      const pinHash = await hashPin(switcherPin);
+      const valid = await verifyPin({ userId: switcherTarget.id, pinHash });
+      if (!valid) {
+        setSwitcherError("Incorrect PIN");
+        return;
+      }
+      setActiveUser(switcherTarget);
+      toast.success(`Now active as "${switcherTarget.name}"`);
+      setSwitcherOpen(false);
+      setSwitcherPin("");
+      setSwitcherTarget(null);
+    } catch {
+      setSwitcherError("Verification failed");
+    } finally {
+      setSwitcherVerifying(false);
+    }
+  }
+
+  // ── Filtering logic ─────────────────────────────────────────────────────────
+  function applyFilters(columnCards: Card[]): Card[] {
+    return columnCards.filter((card) => {
+      // Text search
+      if (filters.textSearch) {
+        const q = filters.textSearch.toLowerCase();
+        const titleMatch = card.title.toLowerCase().includes(q);
+        const descMatch = card.description?.toLowerCase().includes(q) ?? false;
+        if (!titleMatch && !descMatch) return false;
+      }
+      // Unassigned only
+      if (filters.unassignedOnly) {
+        if (card.assignedUserId != null) return false;
+      }
+      // Assignee filter
+      if (filters.assigneeId !== null) {
+        if (card.assignedUserId?.toString() !== filters.assigneeId.toString())
+          return false;
+      }
+      // Tag filter (card must have ALL selected tags)
+      if (filters.tagIds.length > 0) {
+        const cardTagStrs = (card.tags ?? []).map((t) => t.toString());
+        const hasAll = filters.tagIds.every((tid) => cardTagStrs.includes(tid));
+        if (!hasAll) return false;
+      }
+      // Date range filter
+      if (filters.dateField && (filters.dateFrom || filters.dateTo)) {
+        let tsMs: number | null = null;
+        if (filters.dateField === "createdAt") {
+          tsMs = Number(card.createdAt) / 1_000_000;
+        } else if (filters.dateField === "dueDate" && card.dueDate != null) {
+          tsMs = Number(card.dueDate) / 1_000_000;
+        }
+        if (tsMs === null) return false;
+        if (filters.dateFrom) {
+          const fromMs = new Date(filters.dateFrom).getTime();
+          if (tsMs < fromMs) return false;
+        }
+        if (filters.dateTo) {
+          // Include the full end date day
+          const toMs = new Date(filters.dateTo).getTime() + 86_400_000;
+          if (tsMs > toMs) return false;
+        }
+      }
+      return true;
+    });
+  }
 
   // ── Compute cards per column ────────────────────────────────────────────────
   function getCardsForColumn(column: ColumnView): Card[] {
@@ -612,9 +893,109 @@ export default function App() {
   // suppress unused warning — getCardsForColumn used in previous version
   void getCardsForColumn;
 
+  const isAdminUser =
+    activeUser?.isAdmin === true || activeUser?.isMasterAdmin === true;
+
   return (
     <div className="min-h-screen flex flex-col bg-background">
       <Toaster position="bottom-right" />
+
+      {/* Master Admin Setup overlay */}
+      {showSetupOverlay && (
+        <MasterAdminSetup
+          onComplete={(user) => {
+            setActiveUser(user);
+            setAdminSetupComplete(true);
+          }}
+        />
+      )}
+
+      {/* Tags modal */}
+      {activeProjectId && (
+        <TagsModal
+          open={showTagsModal}
+          onOpenChange={setShowTagsModal}
+          projectId={activeProjectId}
+          activeUser={activeUser}
+        />
+      )}
+
+      {/* Quick user switcher PIN dialog */}
+      <Dialog
+        open={switcherOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSwitcherOpen(false);
+            setSwitcherPin("");
+            setSwitcherError("");
+            setSwitcherTarget(null);
+          }
+        }}
+      >
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-base font-display">
+              Switch to {switcherTarget?.name}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-1">
+            <p className="text-sm text-muted-foreground">
+              Enter{" "}
+              <span className="font-semibold text-foreground">
+                {switcherTarget?.name}
+              </span>
+              's PIN to set them as active.
+            </p>
+            <div className="space-y-2">
+              <Input
+                type="password"
+                inputMode="numeric"
+                maxLength={4}
+                pattern="[0-9]*"
+                placeholder="4-digit PIN"
+                value={switcherPin}
+                onChange={(e) => {
+                  setSwitcherPin(e.target.value.replace(/\D/g, "").slice(0, 4));
+                  setSwitcherError("");
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleSwitcherConfirm();
+                  if (e.key === "Escape") setSwitcherOpen(false);
+                }}
+                className="text-center tracking-widest font-mono text-lg h-12"
+                autoFocus
+                disabled={switcherVerifying}
+              />
+              {switcherError && (
+                <p className="text-xs text-destructive">{switcherError}</p>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <Button
+                className="flex-1"
+                onClick={handleSwitcherConfirm}
+                disabled={switcherPin.length !== 4 || switcherVerifying}
+              >
+                {switcherVerifying ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Verifying…
+                  </>
+                ) : (
+                  "Switch user"
+                )}
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => setSwitcherOpen(false)}
+                disabled={switcherVerifying}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Header */}
       <header className="sticky top-0 z-20 flex items-center gap-3 px-6 h-14 border-b border-border bg-card/80 backdrop-blur-sm">
@@ -687,25 +1068,103 @@ export default function App() {
         </nav>
 
         <div className="ml-auto flex items-center gap-2">
-          {/* Active user chip */}
-          {activeUser ? (
-            <div className="flex items-center gap-1.5 bg-primary/10 text-primary rounded-full px-3 py-1 text-xs font-medium">
-              <div className="h-4 w-4 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-[9px] font-bold">
-                {activeUser.name.slice(0, 1).toUpperCase()}
-              </div>
-              {activeUser.name}
-            </div>
-          ) : (
+          {/* Tags button — admin only, shown on board tab */}
+          {isAdminUser && activeTab === "board" && activeProjectId && (
             <button
               type="button"
-              onClick={() => setActiveTab("users")}
-              className="flex items-center gap-1.5 bg-secondary/80 text-muted-foreground hover:text-foreground rounded-full px-3 py-1 text-xs font-medium transition-colors"
-              title="No active user — click to set one"
+              onClick={() => setShowTagsModal(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors"
+              title="Manage tags for this project"
             >
-              <Users className="h-3 w-3" />
-              Set active user
+              <Tag className="h-3.5 w-3.5" />
+              Tags
             </button>
           )}
+
+          {/* Quick user switcher */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              {activeUser ? (
+                <button
+                  type="button"
+                  className="flex items-center gap-1.5 bg-primary/10 text-primary rounded-full px-3 py-1 text-xs font-medium hover:bg-primary/15 transition-colors"
+                  title="Switch active user"
+                >
+                  <div className="h-4 w-4 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-[9px] font-bold">
+                    {activeUser.name.slice(0, 1).toUpperCase()}
+                  </div>
+                  {activeUser.name}
+                  {activeUser.isMasterAdmin && (
+                    <Crown className="h-2.5 w-2.5 text-amber-500" />
+                  )}
+                  {activeUser.isAdmin && !activeUser.isMasterAdmin && (
+                    <Shield className="h-2.5 w-2.5 text-blue-500" />
+                  )}
+                  <ChevronDown className="h-2.5 w-2.5 opacity-60" />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="flex items-center gap-1.5 bg-secondary/80 text-muted-foreground hover:text-foreground rounded-full px-3 py-1 text-xs font-medium transition-colors"
+                  title="Set active user"
+                >
+                  <Users className="h-3 w-3" />
+                  Set active user
+                  <ChevronDown className="h-2.5 w-2.5 opacity-60" />
+                </button>
+              )}
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-52">
+              {users.length === 0 ? (
+                <div className="px-3 py-2 text-xs text-muted-foreground">
+                  No users yet — go to the Users tab
+                </div>
+              ) : (
+                <>
+                  {users.map((user) => (
+                    <DropdownMenuItem
+                      key={user.id.toString()}
+                      onClick={() => {
+                        if (activeUser?.id === user.id) return; // already active
+                        setSwitcherTarget(user);
+                        setSwitcherPin("");
+                        setSwitcherError("");
+                        setSwitcherOpen(true);
+                      }}
+                      className="flex items-center gap-2"
+                    >
+                      <div className="h-6 w-6 rounded-full bg-secondary flex items-center justify-center text-[10px] font-bold shrink-0">
+                        {user.name.slice(0, 1).toUpperCase()}
+                      </div>
+                      <span className="flex-1 truncate">{user.name}</span>
+                      {user.isMasterAdmin && (
+                        <Crown className="h-3 w-3 text-amber-500 shrink-0" />
+                      )}
+                      {user.isAdmin && !user.isMasterAdmin && (
+                        <Shield className="h-3 w-3 text-blue-500 shrink-0" />
+                      )}
+                      {activeUser?.id === user.id && (
+                        <span className="text-[9px] text-primary font-semibold shrink-0">
+                          Active
+                        </span>
+                      )}
+                    </DropdownMenuItem>
+                  ))}
+                  {activeUser && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        onClick={() => setActiveUser(null)}
+                        className="text-muted-foreground"
+                      >
+                        Sign out
+                      </DropdownMenuItem>
+                    </>
+                  )}
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
           {(actorFetching || activeProjectId === null) && (
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -719,6 +1178,21 @@ export default function App() {
       <main className="flex-1 overflow-hidden flex flex-col">
         {activeTab === "board" ? (
           <>
+            {/* Filter bar */}
+            {!isLoading && (
+              <FilterBar
+                filters={filters}
+                onChange={setFilters}
+                users={users}
+                tags={projectTags}
+                presets={filterPresets}
+                activeUser={activeUser}
+                onSavePreset={handleSavePreset}
+                onDeletePreset={handleDeletePreset}
+                onApplyPreset={handleApplyPreset}
+              />
+            )}
+
             {isLoading && columns.length === 0 ? (
               // Loading skeleton
               <div className="flex gap-5 p-6 overflow-x-auto kanban-board">
@@ -760,7 +1234,7 @@ export default function App() {
                       <KanbanColumn
                         key={column.id.toString()}
                         column={column}
-                        cards={getEffectiveCardsForColumn(column)}
+                        cards={applyFilters(getEffectiveCardsForColumn(column))}
                         columnIndex={idx}
                         totalColumns={effectiveColumns.length}
                         isFirst={idx === 0}
@@ -772,6 +1246,10 @@ export default function App() {
                         onRenameColumn={handleRenameColumn}
                         onDeleteColumn={handleDeleteColumn}
                         onAssignCard={handleAssignCard}
+                        onUpdateCardTags={handleUpdateCardTags}
+                        onUpdateCardDueDate={handleUpdateCardDueDate}
+                        onMoveCards={handleMoveCards}
+                        projectTags={projectTags}
                         siblingColumns={effectiveColumns}
                         users={users}
                         activeUser={activeUser}
@@ -860,6 +1338,7 @@ export default function App() {
                       onUpdate={() => {}}
                       users={users}
                       activeUser={activeUser}
+                      availableTags={projectTags}
                       isOverlay
                     />
                   ) : null}

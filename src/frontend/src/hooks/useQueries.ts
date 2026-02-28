@@ -1,10 +1,20 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { Card, ColumnView, Project, Revision } from "../backend.d";
+import type {
+  Card,
+  ColumnView,
+  Comment,
+  FilterPreset,
+  Project,
+  Revision,
+  Tag,
+} from "../backend.d";
 import { useActor } from "./useActor";
 
 export interface User {
   id: bigint;
   name: string;
+  isAdmin: boolean;
+  isMasterAdmin: boolean;
 }
 
 // ─── Project hooks ─────────────────────────────────────────────────────────────
@@ -489,10 +499,78 @@ export function useUsers() {
     queryFn: async () => {
       if (!actor) return [];
       const raw = await actor.getUsers();
-      // backend now returns Array<User> with { id, name, pinHash }
-      return raw.map((u) => ({ id: u.id, name: u.name }));
+      return raw.map((u) => ({
+        id: u.id,
+        name: u.name,
+        isAdmin: u.isAdmin,
+        isMasterAdmin: u.isMasterAdmin,
+      }));
     },
     enabled: !!actor && !isFetching,
+  });
+}
+
+export function useIsAdminSetup() {
+  const { actor, isFetching } = useActor();
+  return useQuery<boolean>({
+    queryKey: ["isAdminSetup"],
+    queryFn: async () => {
+      if (!actor) return false;
+      return actor.isAdminSetup();
+    },
+    enabled: !!actor && !isFetching,
+  });
+}
+
+export function useSetupMasterAdmin() {
+  const { actor } = useActor();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      name,
+      pinHash,
+    }: { name: string; pinHash: string }): Promise<bigint> => {
+      if (!actor) throw new Error("No actor");
+      return actor.setupMasterAdmin(name, pinHash);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+      queryClient.invalidateQueries({ queryKey: ["isAdminSetup"] });
+    },
+  });
+}
+
+export function usePromoteUser() {
+  const { actor } = useActor();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      userId,
+      actorUserId,
+    }: { userId: bigint; actorUserId: bigint }): Promise<void> => {
+      if (!actor) throw new Error("No actor");
+      return actor.promoteUser(userId, actorUserId);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+    },
+  });
+}
+
+export function useDemoteUser() {
+  const { actor } = useActor();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      userId,
+      actorUserId,
+    }: { userId: bigint; actorUserId: bigint }): Promise<void> => {
+      if (!actor) throw new Error("No actor");
+      return actor.demoteUser(userId, actorUserId);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+    },
   });
 }
 
@@ -517,9 +595,12 @@ export function useDeleteUser() {
   const { actor } = useActor();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (id: bigint) => {
+    mutationFn: async ({
+      userId,
+      actorUserId,
+    }: { userId: bigint; actorUserId: bigint }) => {
       if (!actor) throw new Error("No actor");
-      return actor.deleteUser(id);
+      return actor.deleteUser(userId, actorUserId);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["users"] });
@@ -563,25 +644,354 @@ export function useResetUserPin() {
   return useMutation({
     mutationFn: async ({
       userId,
-      adminPinHash,
+      actorUserId,
       newPinHash,
     }: {
       userId: bigint;
-      adminPinHash: string;
+      actorUserId: bigint;
       newPinHash: string;
     }) => {
       if (!actor) throw new Error("No actor");
-      return actor.resetUserPin(userId, adminPinHash, newPinHash);
+      return actor.resetUserPin(userId, actorUserId, newPinHash);
     },
   });
 }
 
-export function useSetAdminPin() {
+// ─── Tag hooks ────────────────────────────────────────────────────────────────
+
+export function useProjectTags(projectId: bigint | null) {
+  const { actor, isFetching } = useActor();
+  return useQuery<Tag[]>({
+    queryKey: ["tags", projectId?.toString() ?? "none"],
+    queryFn: async () => {
+      if (!actor || projectId === null) return [];
+      return actor.getProjectTags(projectId);
+    },
+    enabled: !!actor && !isFetching && projectId !== null,
+  });
+}
+
+export function useCreateTag() {
   const { actor } = useActor();
+  const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (newPinHash: string) => {
+    mutationFn: async ({
+      projectId,
+      name,
+      color,
+      actorUserId,
+    }: {
+      projectId: bigint;
+      name: string;
+      color: string;
+      actorUserId: bigint;
+    }): Promise<bigint> => {
       if (!actor) throw new Error("No actor");
-      return actor.setAdminPin(newPinHash);
+      return actor.createTag(projectId, name, color, actorUserId);
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["tags", variables.projectId.toString()],
+      });
+    },
+  });
+}
+
+export function useRenameTag() {
+  const { actor } = useActor();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      tagId,
+      newName,
+      actorUserId,
+      projectId: _projectId,
+    }: {
+      tagId: bigint;
+      newName: string;
+      actorUserId: bigint;
+      projectId: bigint;
+    }): Promise<void> => {
+      if (!actor) throw new Error("No actor");
+      return actor.renameTag(tagId, newName, actorUserId);
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["tags", variables.projectId.toString()],
+      });
+    },
+  });
+}
+
+export function useDeleteTag() {
+  const { actor } = useActor();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      tagId,
+      actorUserId,
+      projectId: _projectId,
+    }: {
+      tagId: bigint;
+      actorUserId: bigint;
+      projectId: bigint;
+    }): Promise<void> => {
+      if (!actor) throw new Error("No actor");
+      return actor.deleteTag(tagId, actorUserId);
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["tags", variables.projectId.toString()],
+      });
+      // Also invalidate cards since they may have references to this tag
+      queryClient.invalidateQueries({ queryKey: ["cards"] });
+    },
+  });
+}
+
+export function useUpdateCardTags() {
+  const { actor } = useActor();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      cardId,
+      tagIds,
+      actorUserId,
+      projectId: _projectId,
+    }: {
+      cardId: bigint;
+      tagIds: bigint[];
+      actorUserId: bigint;
+      projectId: bigint;
+    }): Promise<void> => {
+      if (!actor) throw new Error("No actor");
+      return actor.updateCardTags(cardId, tagIds, actorUserId);
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["tags", variables.projectId.toString()],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["cards", variables.projectId.toString()],
+      });
+    },
+  });
+}
+
+export function useUpdateCardDueDate() {
+  const { actor } = useActor();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      cardId,
+      dueDate,
+      actorUserId,
+      projectId: _projectId,
+    }: {
+      cardId: bigint;
+      dueDate: bigint | null;
+      actorUserId: bigint;
+      projectId: bigint;
+    }): Promise<void> => {
+      if (!actor) throw new Error("No actor");
+      return actor.updateCardDueDate(cardId, dueDate, actorUserId);
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["cards", variables.projectId.toString()],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["revisions", variables.projectId.toString()],
+      });
+    },
+  });
+}
+
+// ─── Comment hooks ────────────────────────────────────────────────────────────
+
+export function useCardComments(cardId: bigint | null) {
+  const { actor, isFetching } = useActor();
+  return useQuery<Comment[]>({
+    queryKey: ["comments", cardId?.toString() ?? "none"],
+    queryFn: async () => {
+      if (!actor || cardId === null) return [];
+      return actor.getCardComments(cardId);
+    },
+    enabled: !!actor && !isFetching && cardId !== null,
+  });
+}
+
+export function useAddComment() {
+  const { actor } = useActor();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      cardId,
+      text,
+      actorUserId,
+    }: {
+      cardId: bigint;
+      text: string;
+      actorUserId: bigint;
+    }): Promise<bigint> => {
+      if (!actor) throw new Error("No actor");
+      return actor.addComment(cardId, text, actorUserId);
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["comments", variables.cardId.toString()],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["cardRevisions", variables.cardId.toString()],
+      });
+    },
+  });
+}
+
+export function useDeleteComment() {
+  const { actor } = useActor();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      commentId,
+      actorUserId,
+      cardId: _cardId,
+    }: {
+      commentId: bigint;
+      actorUserId: bigint;
+      cardId: bigint;
+    }): Promise<void> => {
+      if (!actor) throw new Error("No actor");
+      return actor.deleteComment(commentId, actorUserId);
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["comments", variables.cardId.toString()],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["cardRevisions", variables.cardId.toString()],
+      });
+    },
+  });
+}
+
+// ─── Filter preset hooks ──────────────────────────────────────────────────────
+
+export function useFilterPresets(projectId: bigint | null) {
+  const { actor, isFetching } = useActor();
+  return useQuery<FilterPreset[]>({
+    queryKey: ["filterPresets", projectId?.toString() ?? "none"],
+    queryFn: async () => {
+      if (!actor || projectId === null) return [];
+      return actor.getFilterPresets(projectId);
+    },
+    enabled: !!actor && !isFetching && projectId !== null,
+  });
+}
+
+export function useSaveFilterPreset() {
+  const { actor } = useActor();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      projectId,
+      createdByUserId,
+      name,
+      assigneeId,
+      tagIds,
+      unassignedOnly,
+      textSearch,
+      dateField,
+      dateFrom,
+      dateTo,
+    }: {
+      projectId: bigint;
+      createdByUserId: bigint;
+      name: string;
+      assigneeId: bigint | null;
+      tagIds: bigint[];
+      unassignedOnly: boolean;
+      textSearch: string;
+      dateField: string | null;
+      dateFrom: string;
+      dateTo: string;
+    }): Promise<bigint> => {
+      if (!actor) throw new Error("No actor");
+      return actor.saveFilterPreset(
+        projectId,
+        createdByUserId,
+        name,
+        assigneeId,
+        tagIds,
+        unassignedOnly,
+        textSearch,
+        dateField,
+        dateFrom,
+        dateTo,
+      );
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["filterPresets"] });
+    },
+  });
+}
+
+export function useDeleteFilterPreset() {
+  const { actor } = useActor();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      presetId,
+      actorUserId,
+    }: {
+      presetId: bigint;
+      actorUserId: bigint;
+    }): Promise<void> => {
+      if (!actor) throw new Error("No actor");
+      return actor.deleteFilterPreset(presetId, actorUserId);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["filterPresets"] });
+    },
+  });
+}
+
+// ─── Multi-move hook ──────────────────────────────────────────────────────────
+
+export function useMoveCards() {
+  const { actor } = useActor();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      cardIds,
+      targetColumnId,
+      actorUserId,
+      projectId: _projectId,
+    }: {
+      cardIds: bigint[];
+      targetColumnId: bigint;
+      actorUserId: bigint;
+      projectId?: bigint;
+    }): Promise<void> => {
+      if (!actor) throw new Error("No actor");
+      return actor.moveCards(cardIds, targetColumnId, actorUserId);
+    },
+    onSuccess: (_data, variables) => {
+      if (variables.projectId) {
+        queryClient.invalidateQueries({
+          queryKey: ["cards", variables.projectId.toString()],
+        });
+        queryClient.invalidateQueries({
+          queryKey: ["columns", variables.projectId.toString()],
+        });
+        queryClient.invalidateQueries({
+          queryKey: ["revisions", variables.projectId.toString()],
+        });
+      } else {
+        queryClient.invalidateQueries({ queryKey: ["cards"] });
+        queryClient.invalidateQueries({ queryKey: ["columns"] });
+        queryClient.invalidateQueries({ queryKey: ["revisions"] });
+      }
     },
   });
 }

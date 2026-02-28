@@ -2,13 +2,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   AlertCircle,
+  Crown,
   KeyRound,
   Loader2,
-  RotateCcw,
-  ShieldAlert,
+  Shield,
   ShieldCheck,
   Trash2,
   UserCheck,
+  UserMinus,
   UserPlus,
 } from "lucide-react";
 import { useState } from "react";
@@ -17,15 +18,17 @@ import {
   useChangeUserPin,
   useCreateUser,
   useDeleteUser,
+  useDemoteUser,
+  usePromoteUser,
   useResetUserPin,
-  useSetAdminPin,
+  useSetupMasterAdmin,
   useUsers,
   useVerifyPin,
 } from "../hooks/useQueries";
 import type { User } from "../hooks/useQueries";
 
 // ── PIN hashing ──────────────────────────────────────────────────────────────
-async function hashPin(pin: string): Promise<string> {
+export async function hashPin(pin: string): Promise<string> {
   const encoder = new TextEncoder();
   const data = encoder.encode(pin);
   const buffer = await crypto.subtle.digest("SHA-256", data);
@@ -75,87 +78,99 @@ function PinInput({
   );
 }
 
-// ── Forgot/Admin-reset subform (used in both Delete and SetActive flows) ──────
-interface AdminResetFormProps {
+// ── Admin-reset by role (replaces AdminResetForm) ─────────────────────────────
+interface AdminResetByRoleProps {
   user: User;
+  activeUser: User | null;
   onSuccess: (newPin: string) => void;
   onCancel: () => void;
 }
 
-function AdminResetForm({ user, onSuccess, onCancel }: AdminResetFormProps) {
-  const [adminPin, setAdminPin] = useState("");
+function AdminResetByRole({
+  user,
+  activeUser,
+  onSuccess,
+  onCancel,
+}: AdminResetByRoleProps) {
   const [newPin, setNewPin] = useState("");
   const [error, setError] = useState("");
   const { mutateAsync: resetUserPin, isPending } = useResetUserPin();
 
+  // No admin active — show informative message
+  if (!activeUser || (!activeUser.isAdmin && !activeUser.isMasterAdmin)) {
+    return (
+      <div className="mt-2 p-3 rounded-lg bg-amber-500/5 border border-amber-500/25 space-y-2">
+        <div className="flex items-center gap-1.5 text-xs font-medium text-amber-600 dark:text-amber-400">
+          <Shield className="h-3.5 w-3.5 shrink-0" />
+          <span>Admin required</span>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          An admin must be set as active to reset PINs. Ask your admin to set
+          themselves as active first.
+        </p>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-8 text-xs px-3"
+          onClick={onCancel}
+        >
+          Cancel
+        </Button>
+      </div>
+    );
+  }
+
   async function handleReset() {
-    if (adminPin.length !== 4 || newPin.length !== 4) {
-      setError("Both PINs must be 4 digits");
+    if (newPin.length !== 4) {
+      setError("New PIN must be 4 digits");
       return;
     }
+    if (!activeUser) return;
     setError("");
     try {
-      const adminHash = await hashPin(adminPin);
       const newHash = await hashPin(newPin);
       await resetUserPin({
         userId: user.id,
-        adminPinHash: adminHash,
+        actorUserId: activeUser.id,
         newPinHash: newHash,
       });
       toast.success("PIN reset successfully");
       onSuccess(newPin);
     } catch {
-      setError("Admin PIN is incorrect or reset failed");
+      setError("Reset failed — make sure you have admin privileges");
     }
   }
 
   return (
     <div className="mt-2 p-3 rounded-lg bg-amber-500/5 border border-amber-500/25 space-y-2">
       <div className="flex items-center gap-1.5 text-xs font-medium text-amber-600 dark:text-amber-400">
-        <ShieldAlert className="h-3.5 w-3.5 shrink-0" />
-        <span>Admin PIN reset</span>
+        <ShieldCheck className="h-3.5 w-3.5 shrink-0" />
+        <span>Admin PIN reset (as {activeUser.name})</span>
       </div>
-      <div className="space-y-2">
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground w-20 shrink-0">
-            Admin PIN
-          </span>
-          <PinInput
-            value={adminPin}
-            onChange={(v) => {
-              setAdminPin(v);
-              setError("");
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") onCancel();
-            }}
-            disabled={isPending}
-            autoFocus
-          />
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground w-20 shrink-0">
-            New PIN
-          </span>
-          <PinInput
-            value={newPin}
-            onChange={(v) => {
-              setNewPin(v);
-              setError("");
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") onCancel();
-            }}
-            disabled={isPending}
-          />
-        </div>
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-muted-foreground w-20 shrink-0">
+          New PIN
+        </span>
+        <PinInput
+          value={newPin}
+          onChange={(v) => {
+            setNewPin(v);
+            setError("");
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") handleReset();
+            if (e.key === "Escape") onCancel();
+          }}
+          disabled={isPending}
+          autoFocus
+        />
       </div>
       <div className="flex items-center gap-2 pt-1">
         <Button
           size="sm"
           className="h-8 text-xs px-3 bg-amber-500 hover:bg-amber-600 text-white"
           onClick={handleReset}
-          disabled={adminPin.length !== 4 || newPin.length !== 4 || isPending}
+          disabled={newPin.length !== 4 || isPending}
         >
           {isPending ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -178,11 +193,11 @@ function AdminResetForm({ user, onSuccess, onCancel }: AdminResetFormProps) {
   );
 }
 
-// ── Delete confirmation dialog (inline per row) ───────────────────────────────
+// ── Delete confirmation dialog ────────────────────────────────────────────────
 interface DeleteConfirmProps {
   user: User;
   activeUser: User | null;
-  onSetActive: (user: User) => void;
+  onSetActive: (user: User | null) => void;
   onCancel: () => void;
 }
 
@@ -200,7 +215,68 @@ function DeleteConfirm({
 
   const isPending = isVerifying || isDeleting;
 
+  // Master admin cannot be deleted
+  if (user.isMasterAdmin) {
+    return (
+      <div className="mt-2 p-3 rounded-lg bg-destructive/5 border border-destructive/20 space-y-2">
+        <div className="flex items-center gap-1.5 text-xs text-destructive font-medium">
+          <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+          <span>Master admin cannot be deleted</span>
+        </div>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-8 text-xs px-3"
+          onClick={onCancel}
+        >
+          Close
+        </Button>
+      </div>
+    );
+  }
+
+  // Admin can delete non-master users, or user can delete themselves
+  const canAdminDelete =
+    activeUser &&
+    (activeUser.isAdmin || activeUser.isMasterAdmin) &&
+    activeUser.id !== user.id;
+  const canSelfDelete = activeUser?.id === user.id;
+
+  if (!canAdminDelete && !canSelfDelete) {
+    return (
+      <div className="mt-2 p-3 rounded-lg bg-destructive/5 border border-destructive/20 space-y-2">
+        <div className="flex items-center gap-1.5 text-xs text-destructive font-medium">
+          <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+          <span>You can only delete your own account</span>
+        </div>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-8 text-xs px-3"
+          onClick={onCancel}
+        >
+          Cancel
+        </Button>
+      </div>
+    );
+  }
+
   async function handleConfirm() {
+    if (!activeUser) return;
+
+    // If admin is deleting someone else, no PIN needed (they're already verified as active)
+    if (canAdminDelete) {
+      try {
+        await deleteUser({ userId: user.id, actorUserId: activeUser.id });
+        toast.success(`User "${user.name}" removed`);
+        onCancel();
+      } catch {
+        toast.error("Failed to delete user");
+      }
+      return;
+    }
+
+    // Self-delete requires PIN verification
     if (pin.length !== 4) {
       setError("Enter your 4-digit PIN");
       return;
@@ -210,12 +286,12 @@ function DeleteConfirm({
       const pinHash = await hashPin(pin);
       const valid = await verifyPin({ userId: user.id, pinHash });
       if (!valid) {
-        setError("Incorrect PIN. Only you can delete your account.");
+        setError("Incorrect PIN");
         return;
       }
-      await deleteUser(user.id);
+      await deleteUser({ userId: user.id, actorUserId: activeUser.id });
       if (activeUser?.id === user.id) {
-        onSetActive(null as unknown as User);
+        onSetActive(null);
       }
       toast.success(`User "${user.name}" removed`);
     } catch {
@@ -225,8 +301,9 @@ function DeleteConfirm({
 
   if (showForgot) {
     return (
-      <AdminResetForm
+      <AdminResetByRole
         user={user}
+        activeUser={activeUser}
         onSuccess={(newPin) => {
           setPin(newPin);
           setShowForgot(false);
@@ -240,66 +317,102 @@ function DeleteConfirm({
     <div className="mt-2 p-3 rounded-lg bg-destructive/5 border border-destructive/20 space-y-2">
       <div className="flex items-center gap-1.5 text-xs text-destructive font-medium">
         <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-        <span>Enter your PIN to confirm deletion</span>
+        {canAdminDelete ? (
+          <span>Delete {user.name}? This cannot be undone.</span>
+        ) : (
+          <span>Enter your PIN to confirm deletion</span>
+        )}
       </div>
-      <div className="flex items-center gap-2">
-        <PinInput
-          value={pin}
-          onChange={(v) => {
-            setPin(v);
-            setError("");
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") handleConfirm();
-            if (e.key === "Escape") onCancel();
-          }}
-          disabled={isPending}
-          autoFocus
-        />
-        <Button
-          size="sm"
-          variant="destructive"
-          className="h-8 text-xs px-3"
-          onClick={handleConfirm}
-          disabled={pin.length !== 4 || isPending}
-        >
-          {isPending ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            "Delete"
-          )}
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          className="h-8 text-xs px-3"
-          onClick={onCancel}
-          disabled={isPending}
-        >
-          Cancel
-        </Button>
-      </div>
-      {error && <p className="text-xs text-destructive">{error}</p>}
-      <button
-        type="button"
-        className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors"
-        onClick={() => setShowForgot(true)}
-      >
-        Forgot PIN? Reset with admin PIN
-      </button>
+      {canSelfDelete && !canAdminDelete && (
+        <>
+          <div className="flex items-center gap-2">
+            <PinInput
+              value={pin}
+              onChange={(v) => {
+                setPin(v);
+                setError("");
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleConfirm();
+                if (e.key === "Escape") onCancel();
+              }}
+              disabled={isPending}
+              autoFocus
+            />
+            <Button
+              size="sm"
+              variant="destructive"
+              className="h-8 text-xs px-3"
+              onClick={handleConfirm}
+              disabled={pin.length !== 4 || isPending}
+            >
+              {isPending ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                "Delete"
+              )}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-8 text-xs px-3"
+              onClick={onCancel}
+              disabled={isPending}
+            >
+              Cancel
+            </Button>
+          </div>
+          {error && <p className="text-xs text-destructive">{error}</p>}
+          <button
+            type="button"
+            className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors"
+            onClick={() => setShowForgot(true)}
+          >
+            Forgot PIN? Reset with admin
+          </button>
+        </>
+      )}
+      {canAdminDelete && (
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="destructive"
+            className="h-8 text-xs px-3"
+            onClick={handleConfirm}
+            disabled={isPending}
+          >
+            {isPending ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              "Delete"
+            )}
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-8 text-xs px-3"
+            onClick={onCancel}
+            disabled={isPending}
+          >
+            Cancel
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
 
-// ── Set Active confirmation dialog (inline per row) ───────────────────────────
+// ── Set Active confirmation dialog ────────────────────────────────────────────
 interface SetActiveConfirmProps {
   user: User;
+  activeUser: User | null;
   onSuccess: (user: User) => void;
   onCancel: () => void;
 }
 
 function SetActiveConfirm({
   user,
+  activeUser,
   onSuccess,
   onCancel,
 }: SetActiveConfirmProps) {
@@ -331,12 +444,12 @@ function SetActiveConfirm({
 
   if (showForgot) {
     return (
-      <AdminResetForm
+      <AdminResetByRole
         user={user}
+        activeUser={activeUser}
         onSuccess={(newPin) => {
           setPin(newPin);
           setShowForgot(false);
-          // Auto-verify with the new PIN
           handleConfirm(newPin);
         }}
         onCancel={() => setShowForgot(false)}
@@ -392,13 +505,13 @@ function SetActiveConfirm({
         className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors"
         onClick={() => setShowForgot(true)}
       >
-        Forgot PIN? Reset with admin PIN
+        Forgot PIN? Reset with admin
       </button>
     </div>
   );
 }
 
-// ── Change PIN form (shown for active user in their own row) ──────────────────
+// ── Change PIN form ───────────────────────────────────────────────────────────
 interface ChangePinFormProps {
   user: User;
   onDone: () => void;
@@ -539,6 +652,8 @@ type RowAction = "delete" | "setActive" | "changePin" | null;
 
 function UserRow({ user, isActive, activeUser, onSetActive }: UserRowProps) {
   const [action, setAction] = useState<RowAction>(null);
+  const { mutateAsync: promoteUser, isPending: isPromoting } = usePromoteUser();
+  const { mutateAsync: demoteUser, isPending: isDemoting } = useDemoteUser();
 
   const initials = user.name
     .split(" ")
@@ -546,6 +661,28 @@ function UserRow({ user, isActive, activeUser, onSetActive }: UserRowProps) {
     .join("")
     .slice(0, 2)
     .toUpperCase();
+
+  const isMasterAdminActive = activeUser?.isMasterAdmin === true;
+
+  async function handlePromote() {
+    if (!activeUser) return;
+    try {
+      await promoteUser({ userId: user.id, actorUserId: activeUser.id });
+      toast.success(`${user.name} promoted to admin`);
+    } catch {
+      toast.error("Failed to promote user");
+    }
+  }
+
+  async function handleDemote() {
+    if (!activeUser) return;
+    try {
+      await demoteUser({ userId: user.id, actorUserId: activeUser.id });
+      toast.success(`${user.name} demoted to regular user`);
+    } catch {
+      toast.error("Failed to demote user");
+    }
+  }
 
   return (
     <div
@@ -565,12 +702,24 @@ function UserRow({ user, isActive, activeUser, onSetActive }: UserRowProps) {
           {initials}
         </div>
 
-        {/* Name + active badge */}
+        {/* Name + badges */}
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="text-sm font-medium text-foreground truncate">
               {user.name}
             </span>
+            {user.isMasterAdmin && (
+              <span className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-700 bg-amber-100 dark:text-amber-400 dark:bg-amber-900/30 rounded-full px-2 py-0.5 shrink-0">
+                <Crown className="h-2.5 w-2.5" />
+                Master Admin
+              </span>
+            )}
+            {user.isAdmin && !user.isMasterAdmin && (
+              <span className="inline-flex items-center gap-1 text-[10px] font-medium text-blue-700 bg-blue-100 dark:text-blue-400 dark:bg-blue-900/30 rounded-full px-2 py-0.5 shrink-0">
+                <Shield className="h-2.5 w-2.5" />
+                Admin
+              </span>
+            )}
             {isActive && (
               <span className="inline-flex items-center gap-1 text-[10px] font-medium text-primary bg-primary/10 rounded-full px-2 py-0.5 shrink-0">
                 <UserCheck className="h-2.5 w-2.5" />
@@ -582,7 +731,41 @@ function UserRow({ user, isActive, activeUser, onSetActive }: UserRowProps) {
 
         {/* Actions */}
         <div className="flex items-center gap-1.5 shrink-0">
-          {/* Change PIN — only for currently active user */}
+          {/* Promote/demote — only for master admin, not on themselves or master admin */}
+          {isMasterAdminActive &&
+            !user.isMasterAdmin &&
+            (user.isAdmin ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 text-xs px-2 text-muted-foreground hover:text-foreground"
+                onClick={handleDemote}
+                disabled={isDemoting}
+                title="Demote to regular user"
+              >
+                {isDemoting ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <UserMinus className="h-3.5 w-3.5" />
+                )}
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 text-xs px-2 text-muted-foreground hover:text-blue-600"
+                onClick={handlePromote}
+                disabled={isPromoting}
+                title="Promote to admin"
+              >
+                {isPromoting ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Shield className="h-3.5 w-3.5" />
+                )}
+              </Button>
+            ))}
+          {/* Change PIN — only for active user */}
           {isActive && (
             <Button
               size="sm"
@@ -644,6 +827,7 @@ function UserRow({ user, isActive, activeUser, onSetActive }: UserRowProps) {
       {action === "setActive" && (
         <SetActiveConfirm
           user={user}
+          activeUser={activeUser}
           onSuccess={(u) => {
             onSetActive(u);
             setAction(null);
@@ -658,91 +842,187 @@ function UserRow({ user, isActive, activeUser, onSetActive }: UserRowProps) {
   );
 }
 
-// ── Admin PIN setup card ──────────────────────────────────────────────────────
-function AdminPinCard() {
-  const [pin, setPin] = useState("");
-  const [error, setError] = useState("");
-  const [isConfigured, setIsConfigured] = useState(false);
-  const { mutateAsync: setAdminPin, isPending } = useSetAdminPin();
+// ── Master Admin Setup (shown on first launch) ────────────────────────────────
+interface MasterAdminSetupProps {
+  onComplete: (user: User) => void;
+}
 
-  async function handleSet() {
+export function MasterAdminSetup({ onComplete }: MasterAdminSetupProps) {
+  const [name, setName] = useState("");
+  const [pin, setPin] = useState("");
+  const [confirmPin, setConfirmPin] = useState("");
+  const [error, setError] = useState("");
+  const { mutateAsync: setupMasterAdmin, isPending } = useSetupMasterAdmin();
+  const { data: users = [] } = useUsers();
+
+  async function handleSetup() {
+    const trimName = name.trim();
+    if (!trimName) {
+      setError("Name is required");
+      return;
+    }
     if (pin.length !== 4) {
-      setError("PIN must be 4 digits");
+      setError("PIN must be exactly 4 digits");
+      return;
+    }
+    if (pin !== confirmPin) {
+      setError("PINs do not match");
       return;
     }
     setError("");
     try {
       const pinHash = await hashPin(pin);
-      await setAdminPin(pinHash);
-      toast.success("Admin PIN set successfully");
-      setIsConfigured(true);
-      setPin("");
+      const userId = await setupMasterAdmin({ name: trimName, pinHash });
+      toast.success(`Welcome, ${trimName}! Master admin account created.`);
+      // Find the newly created user and set them as active
+      const newUser: User = {
+        id: userId,
+        name: trimName,
+        isAdmin: true,
+        isMasterAdmin: true,
+      };
+      onComplete(newUser);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      if (
-        msg.toLowerCase().includes("already") ||
-        msg.toLowerCase().includes("already set")
-      ) {
-        setIsConfigured(true);
+      if (msg.toLowerCase().includes("already")) {
+        // Already set up — reload the users list to get the master admin
+        const masterAdmin = users.find((u) => u.isMasterAdmin);
+        if (masterAdmin) {
+          onComplete(masterAdmin);
+        }
       } else {
-        setError("Failed to set admin PIN");
+        setError("Setup failed. Please try again.");
       }
     }
   }
 
   return (
-    <div className="rounded-xl border border-border bg-card shadow-column overflow-hidden">
-      <div className="px-5 pt-4 pb-3 border-b border-border">
-        <h2 className="font-display font-semibold text-base text-foreground flex items-center gap-2">
-          <ShieldAlert className="h-4 w-4 text-amber-500" />
-          Admin PIN
-        </h2>
-        <p className="text-xs text-muted-foreground mt-0.5">
-          Used to reset any user's forgotten PIN.
-        </p>
-      </div>
-      <div className="p-5">
-        {isConfigured ? (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <ShieldCheck className="h-4 w-4 text-emerald-500 shrink-0" />
-            <span>Admin PIN is configured</span>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/95 backdrop-blur-sm">
+      <div className="w-full max-w-md mx-4">
+        <div className="rounded-2xl border border-border bg-card shadow-xl overflow-hidden">
+          {/* Header */}
+          <div className="px-6 pt-6 pb-4 border-b border-border bg-gradient-to-br from-amber-500/5 to-transparent">
+            <div className="flex items-center gap-3 mb-2">
+              <div className="h-10 w-10 rounded-xl bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center">
+                <Crown className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+              </div>
+              <div>
+                <h2 className="font-display font-bold text-lg text-foreground">
+                  Welcome to Kanban
+                </h2>
+                <p className="text-xs text-muted-foreground">
+                  Set up your master admin account to get started
+                </p>
+              </div>
+            </div>
           </div>
-        ) : (
-          <div className="space-y-3">
-            <div className="flex items-center gap-3">
+
+          {/* Form */}
+          <div className="p-6 space-y-4">
+            <div className="space-y-1.5">
+              <label
+                htmlFor="setup-name"
+                className="text-xs font-medium text-muted-foreground uppercase tracking-wide"
+              >
+                Your Name
+              </label>
+              <Input
+                id="setup-name"
+                placeholder="e.g. Terry Brutus"
+                value={name}
+                onChange={(e) => {
+                  setName(e.target.value);
+                  setError("");
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleSetup();
+                }}
+                disabled={isPending}
+                className="text-sm"
+                autoFocus
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label
+                htmlFor="setup-pin"
+                className="text-xs font-medium text-muted-foreground uppercase tracking-wide"
+              >
+                4-Digit PIN
+              </label>
               <PinInput
+                id="setup-pin"
                 value={pin}
                 onChange={(v) => {
                   setPin(v);
                   setError("");
                 }}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") handleSet();
+                  if (e.key === "Enter") handleSetup();
                 }}
                 disabled={isPending}
               />
+            </div>
+
+            <div className="space-y-1.5">
+              <label
+                htmlFor="setup-confirm-pin"
+                className="text-xs font-medium text-muted-foreground uppercase tracking-wide"
+              >
+                Confirm PIN
+              </label>
+              <PinInput
+                id="setup-confirm-pin"
+                value={confirmPin}
+                onChange={(v) => {
+                  setConfirmPin(v);
+                  setError("");
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleSetup();
+                }}
+                disabled={isPending}
+              />
+            </div>
+
+            {error && (
+              <div className="flex items-center gap-1.5 text-xs text-destructive">
+                <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                <span>{error}</span>
+              </div>
+            )}
+
+            <div className="pt-1">
               <Button
-                size="sm"
-                className="h-8 text-xs px-4 gap-1.5"
-                onClick={handleSet}
-                disabled={pin.length !== 4 || isPending}
+                className="w-full gap-2"
+                onClick={handleSetup}
+                disabled={
+                  !name.trim() ||
+                  pin.length !== 4 ||
+                  confirmPin.length !== 4 ||
+                  isPending
+                }
               >
                 {isPending ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Setting up…
+                  </>
                 ) : (
                   <>
-                    <RotateCcw className="h-3 w-3" />
-                    Set Admin PIN
+                    <Crown className="h-4 w-4" />
+                    Create Master Admin
                   </>
                 )}
               </Button>
             </div>
-            {error && <p className="text-xs text-destructive">{error}</p>}
-            <p className="text-xs text-muted-foreground">
-              Store this PIN securely — it can reset any user's PIN.
+
+            <p className="text-xs text-muted-foreground text-center">
+              This account has full admin privileges and cannot be deleted.
+              Store your PIN securely.
             </p>
           </div>
-        )}
+        </div>
       </div>
     </div>
   );
@@ -870,9 +1150,6 @@ export default function UsersTab({
         </div>
       </div>
 
-      {/* Admin PIN setup */}
-      <AdminPinCard />
-
       {/* User list */}
       <div className="space-y-3">
         <div className="flex items-center justify-between">
@@ -903,7 +1180,7 @@ export default function UsersTab({
         ) : (
           <div
             className="space-y-2 overflow-y-auto pr-1"
-            style={{ maxHeight: "calc(100vh - 520px)", minHeight: "60px" }}
+            style={{ maxHeight: "calc(100vh - 480px)", minHeight: "60px" }}
           >
             {users.map((user) => (
               <UserRow
