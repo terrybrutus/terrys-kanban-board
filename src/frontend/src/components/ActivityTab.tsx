@@ -1,8 +1,8 @@
-import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { Clock, ActivityIcon } from "lucide-react";
-import { useRevisions } from "../hooks/useQueries";
+import { Skeleton } from "@/components/ui/skeleton";
+import { ActivityIcon, Clock } from "lucide-react";
 import type { Revision } from "../backend.d";
+import { useRevisions } from "../hooks/useQueries";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -67,7 +67,12 @@ function getRevisionTypeBadgeStyle(revisionType: string): string {
   if (type.includes("moved") || type.includes("move")) {
     return "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20";
   }
-  if (type.includes("updated") || type.includes("update") || type.includes("renamed") || type.includes("rename")) {
+  if (
+    type.includes("updated") ||
+    type.includes("update") ||
+    type.includes("renamed") ||
+    type.includes("rename")
+  ) {
     return "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20";
   }
   if (type.includes("assigned") || type.includes("assign")) {
@@ -103,12 +108,13 @@ function RevisionEntry({ revision }: { revision: Revision }) {
   const ms = tsToMs(revision.timestamp);
   const relative = formatRelative(ms);
   const absolute = formatAbsolute(ms);
-  const initials = revision.actorName
-    .split(" ")
-    .map((w) => w[0] ?? "")
-    .join("")
-    .slice(0, 2)
-    .toUpperCase() || "?";
+  const initials =
+    revision.actorName
+      .split(" ")
+      .map((w) => w[0] ?? "")
+      .join("")
+      .slice(0, 2)
+      .toUpperCase() || "?";
 
   return (
     <div className="flex gap-3 items-start py-3 px-4 rounded-lg hover:bg-secondary/40 transition-colors group">
@@ -151,7 +157,10 @@ function RevisionEntry({ revision }: { revision: Revision }) {
 
 // ─── Day Group ────────────────────────────────────────────────────────────────
 
-function DayGroup({ label, revisions }: { label: string; revisions: Revision[] }) {
+function DayGroup({
+  label,
+  revisions,
+}: { label: string; revisions: Revision[] }) {
   return (
     <div>
       <div className="sticky top-0 z-10 flex items-center gap-3 py-2 px-4 bg-background/90 backdrop-blur-sm">
@@ -172,8 +181,12 @@ function DayGroup({ label, revisions }: { label: string; revisions: Revision[] }
 
 // ─── ActivityTab ──────────────────────────────────────────────────────────────
 
-export default function ActivityTab() {
-  const { data: revisions = [], isLoading } = useRevisions();
+interface ActivityTabProps {
+  projectId: bigint | null;
+}
+
+export default function ActivityTab({ projectId }: ActivityTabProps) {
+  const { data: revisions = [], isLoading } = useRevisions(projectId);
 
   // Sort newest first
   const sorted = [...revisions].sort((a, b) => {
@@ -240,9 +253,12 @@ export default function ActivityTab() {
               <ActivityIcon className="h-7 w-7 text-muted-foreground" />
             </div>
             <div>
-              <p className="text-sm font-semibold text-foreground">No activity yet</p>
+              <p className="text-sm font-semibold text-foreground">
+                No activity yet
+              </p>
               <p className="text-xs text-muted-foreground mt-1 max-w-xs">
-                Actions like creating cards, moving them, or assigning users will appear here.
+                Actions like creating cards, moving them, or assigning users
+                will appear here.
               </p>
             </div>
           </div>

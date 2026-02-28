@@ -1,4 +1,4 @@
-import { HttpAgent, isV3ResponseBody } from "@icp-sdk/core/agent";
+import { type HttpAgent, isV3ResponseBody } from "@icp-sdk/core/agent";
 import { IDL } from "@icp-sdk/core/candid";
 
 type Headers = Record<string, string>;
@@ -43,7 +43,7 @@ async function withRetry<T>(operation: () => Promise<T>): Promise<T> {
 
       // Calculate delay with exponential backoff and jitter
       const delay = Math.min(
-        BASE_DELAY_MS * Math.pow(2, attempt) + Math.random() * 1000,
+        BASE_DELAY_MS * 2 ** attempt + Math.random() * 1000,
         MAX_DELAY_MS,
       );
 
@@ -196,7 +196,7 @@ class YHash {
 
   public static fromHex(hexString: string): YHash {
     const bytes = new Uint8Array(
-      hexString.match(/.{1,2}/g)!.map((byte) => parseInt(byte, 16)),
+      hexString.match(/.{1,2}/g)!.map((byte) => Number.parseInt(byte, 16)),
     );
     return new YHash(bytes);
   }
@@ -590,7 +590,7 @@ export class StorageClient {
       const currentCompleted = ++completedChunks;
       if (onProgress != null) {
         const percentage =
-          chunks.length == 0
+          chunks.length === 0
             ? 100
             : Math.round((currentCompleted / chunks.length) * 100);
         onProgress(percentage);

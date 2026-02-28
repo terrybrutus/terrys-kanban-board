@@ -2,6 +2,7 @@ import Map "mo:core/Map";
 import List "mo:core/List";
 import Array "mo:core/Array";
 import Nat "mo:core/Nat";
+import Int "mo:core/Int";
 import Text "mo:core/Text";
 import Time "mo:core/Time";
 import Iter "mo:core/Iter";
@@ -15,12 +16,17 @@ actor {
   // Types & Comparers
   ///////////////////////////
 
+  type Project = {
+    id : Nat;
+    name : Text;
+  };
+
   type Column = {
     id : Nat;
     name : Text;
+    projectId : Nat;
     cardIds : List.List<Nat>;
   };
-
   module Column {
     public func compare(c1 : Column, c2 : Column) : Order.Order {
       Nat.compare(c1.id, c2.id);
@@ -32,9 +38,9 @@ actor {
     title : Text;
     description : ?Text;
     columnId : Nat;
+    projectId : Nat;
     assignedUserId : ?Nat;
   };
-
   module Card {
     public func compare(c1 : Card, c2 : Card) : Order.Order {
       Nat.compare(c1.id, c2.id);
@@ -46,7 +52,6 @@ actor {
     name : Text;
     pinHash : Text;
   };
-
   module User {
     public func compare(u1 : User, u2 : User) : Order.Order {
       Nat.compare(u1.id, u2.id);
@@ -60,8 +65,8 @@ actor {
     revisionType : Text;
     description : Text;
     cardId : ?Nat;
+    projectId : Nat;
   };
-
   module Revision {
     public func compareByTimestamp(rev1 : Revision, rev2 : Revision) : Order.Order {
       Int.compare(rev2.timestamp, rev1.timestamp);
@@ -72,17 +77,182 @@ actor {
   // State
   ///////////////////////////
 
+  let projects = Map.empty<Nat, Project>();
   let users = Map.empty<Nat, User>();
   let columns = Map.empty<Nat, Column>();
   let cards = Map.empty<Nat, Card>();
   let revisions = Map.empty<Nat, Revision>();
 
+  var nextProjectId = 1;
   var nextUserId = 1;
   var nextColumnId = 1;
   var nextCardId = 1;
   var nextRevisionId = 1;
-
   var adminPinHash : ?Text = null;
+
+  ///////////////////////////
+  // Helper Functions
+  ///////////////////////////
+  func getUserName(userId : Nat) : Text {
+    switch (users.get(userId)) {
+      case (null) { "Unknown" };
+      case (?user) { user.name };
+    };
+  };
+
+  func logRevision(
+    projectId : Nat,
+    actorUserId : Nat,
+    revType : Text,
+    description : Text,
+    cardId : ?Nat,
+  ) {
+    let rev : Revision = {
+      id = nextRevisionId;
+      actorName = getUserName(actorUserId);
+      timestamp = Time.now();
+      revisionType = revType;
+      description;
+      cardId;
+      projectId;
+    };
+    revisions.add(nextRevisionId, rev);
+    nextRevisionId += 1;
+  };
+
+  func verifyAdminPin(pinHash : Text) : Bool {
+    switch (adminPinHash) {
+      case (null) { false };
+      case (?storedHash) { storedHash == pinHash };
+    };
+  };
+
+  func addDefaultColumnsToProject(projectId : Nat) {
+    addDefaultColumn("To Do", projectId);
+    addDefaultColumn("In Progress", projectId);
+    addDefaultColumn("Done", projectId);
+  };
+
+  func addDefaultColumn(name : Text, projectId : Nat) {
+    let column : Column = {
+      id = nextColumnId;
+      name;
+      projectId;
+      cardIds = List.empty<Nat>();
+    };
+    columns.add(nextColumnId, column);
+    nextColumnId += 1;
+  };
+
+  ///////////////////////////
+  // Project Functions
+  ///////////////////////////
+
+  public query ({ caller }) func getProjects() : async [Project] {
+    projects.values().toArray();
+  };
+
+  public shared ({ caller }) func createProject(name : Text, actorUserId : Nat) : async Nat {
+    let projectId = nextProjectId;
+    let newProject : Project = {
+      id = projectId;
+      name;
+    };
+    projects.add(projectId, newProject);
+    nextProjectId += 1;
+
+    logRevision(
+      0,
+      actorUserId,
+      "create_project",
+      "Project '" # name # "' created by " # getUserName(actorUserId),
+      null,
+    );
+
+    addDefaultColumnsToProject(projectId);
+    projectId;
+  };
+
+  public shared ({ caller }) func renameProject(
+    projectId : Nat,
+    newName : Text,
+    actorUserId : Nat,
+  ) : async () {
+    switch (projects.get(projectId)) {
+      case (null) { Runtime.trap("Project not found") };
+      case (?project) {
+        projects.add(projectId, { project with name = newName });
+
+        logRevision(
+          projectId,
+          actorUserId,
+          "rename_project",
+          "Project '" # project.name # "' renamed to '" # newName # "' by " # getUserName(actorUserId),
+          null,
+        );
+      };
+    };
+  };
+
+  public shared ({ caller }) func deleteProject(
+    projectId : Nat,
+    actorUserId : Nat,
+  ) : async () {
+    switch (projects.get(projectId)) {
+      case (null) { Runtime.trap("Project not found") };
+      case (?project) {
+        // Remove columns associated with the project
+        let columnsToRemove = columns.toArray().filter(
+          func((_, column)) { column.projectId == projectId }
+        );
+
+        for (elem in columnsToRemove.values()) {
+          columns.remove(elem.0);
+        };
+
+        // Remove cards associated with the project
+        let cardsToRemove = cards.toArray().filter(
+          func((_, card)) { card.projectId == projectId }
+        );
+
+        for (elem in cardsToRemove.values()) {
+          cards.remove(elem.0);
+        };
+
+        projects.remove(projectId);
+
+        logRevision(
+          0,
+          actorUserId,
+          "delete_project",
+          "Project '" # project.name # "' deleted by " # getUserName(actorUserId),
+          null,
+        );
+      };
+    };
+  };
+
+  public shared ({ caller }) func initDefaultProject() : async Nat {
+    if (projects.isEmpty()) {
+      // Create new default project
+      let projectId = nextProjectId;
+      let newProject : Project = {
+        id = projectId;
+        name = "My Board";
+      };
+      projects.add(projectId, newProject);
+      nextProjectId += 1;
+
+      addDefaultColumnsToProject(projectId);
+
+      projectId;
+    } else {
+      // Get the first project's id
+      let allProjects = projects.values().toArray();
+      let firstProject = allProjects[0];
+      firstProject.id;
+    };
+  };
 
   ///////////////////////////
   // User Management
@@ -97,23 +267,37 @@ actor {
     };
     users.add(userId, newUser);
     nextUserId += 1;
+
+    logRevision(
+      0,
+      userId,
+      "create_user",
+      "User '" # name # "' created",
+      null,
+    );
+
     userId;
   };
 
   public shared ({ caller }) func deleteUser(id : Nat) : async () {
     switch (users.get(id)) {
       case (null) { Runtime.trap("User not found") };
-      case (?_) {
+      case (?user) {
         users.remove(id);
+
+        logRevision(
+          0,
+          id,
+          "delete_user",
+          "User '" # user.name # "' deleted",
+          null,
+        );
       };
     };
   };
 
-  func getUserName(userId : Nat) : Text {
-    switch (users.get(userId)) {
-      case (null) { "Unknown" };
-      case (?user) { user.name };
-    };
+  public query ({ caller }) func getUsers() : async [User] {
+    users.values().toArray().sort();
   };
 
   ///////////////////////////
@@ -143,6 +327,7 @@ actor {
         users.add(userId, { user with pinHash = newPinHash });
 
         logRevision(
+          0,
           userId,
           "change_pin",
           "User '" # user.name # "' changed PIN",
@@ -168,6 +353,7 @@ actor {
 
         logRevision(
           0,
+          0,
           "reset_pin",
           "Admin reset PIN for user '" # user.name # "'",
           null,
@@ -187,50 +373,48 @@ actor {
     };
   };
 
-  func verifyAdminPin(pinHash : Text) : Bool {
-    switch (adminPinHash) {
-      case (null) { false };
-      case (?storedHash) { storedHash == pinHash };
-    };
-  };
-
-  public query ({ caller }) func getUsers() : async [User] {
-    users.values().toArray().sort();
-  };
-
   ///////////////////////////
   // Column Management
   ///////////////////////////
 
-  public func initBoard() : async () {
-    if (columns.isEmpty()) {
-      addDefaultColumn("To Do");
-      addDefaultColumn("In Progress");
-      addDefaultColumn("Done");
+  type ColumnView = {
+    id : Nat;
+    name : Text;
+    projectId : Nat;
+    cardIds : [Nat];
+  };
+  module ColumnView {
+    public func fromColumn(column : Column) : ColumnView {
+      {
+        id = column.id;
+        name = column.name;
+        projectId = column.projectId;
+        cardIds = column.cardIds.toArray();
+      };
+    };
+
+    public func fromColumns(columns : [Column]) : [ColumnView] {
+      columns.map(fromColumn);
     };
   };
 
-  func addDefaultColumn(name : Text) {
-    let column : Column = {
-      id = nextColumnId;
-      name;
-      cardIds = List.empty<Nat>();
-    };
-    columns.add(nextColumnId, column);
-    nextColumnId += 1;
-  };
-
-  public shared ({ caller }) func createColumn(name : Text, actorUserId : Nat) : async Nat {
+  public shared ({ caller }) func createColumn(
+    name : Text,
+    actorUserId : Nat,
+    projectId : Nat,
+  ) : async Nat {
     let columnId = nextColumnId;
     let column : Column = {
       id = columnId;
       name;
+      projectId;
       cardIds = List.empty<Nat>();
     };
     columns.add(columnId, column);
     nextColumnId += 1;
 
     logRevision(
+      projectId,
       actorUserId,
       "create_column",
       "Column '" # name # "' created by " # getUserName(actorUserId),
@@ -250,6 +434,7 @@ actor {
         columns.add(columnId, { column with name = newName });
 
         logRevision(
+          column.projectId,
           actorUserId,
           "rename_column",
           "Column '" # column.name # "' renamed to '" # newName # "' by " # getUserName(actorUserId),
@@ -268,6 +453,7 @@ actor {
       case (?column) {
         columns.remove(columnId);
         logRevision(
+          column.projectId,
           actorUserId,
           "delete_column",
           "Column '" # column.name # "' deleted by " # getUserName(actorUserId),
@@ -293,11 +479,25 @@ actor {
     };
 
     logRevision(
+      0,
       actorUserId,
       "reorder_columns",
       "Columns reordered by " # getUserName(actorUserId),
       null,
     );
+  };
+
+  public query ({ caller }) func getColumns(projectId : Nat) : async [ColumnView] {
+    let filtered = columns.values().toArray().filter(
+      func(column) { column.projectId == projectId },
+    ).sort();
+    ColumnView.fromColumns(filtered);
+  };
+
+  public shared ({ caller }) func initBoard() : async () {
+    if (columns.isEmpty()) {
+      ignore await initDefaultProject();
+    };
   };
 
   ///////////////////////////
@@ -309,6 +509,7 @@ actor {
     description : ?Text,
     columnId : Nat,
     actorUserId : Nat,
+    projectId : Nat,
   ) : async Nat {
     switch (columns.get(columnId)) {
       case (null) { Runtime.trap("Column not found") };
@@ -319,6 +520,7 @@ actor {
           title;
           description;
           columnId;
+          projectId;
           assignedUserId = null;
         };
 
@@ -330,6 +532,7 @@ actor {
         nextCardId += 1;
 
         logRevision(
+          projectId,
           actorUserId,
           "create_card",
           "Card '" # title # "' created in column '" # column.name # "' by " # getUserName(actorUserId),
@@ -355,6 +558,7 @@ actor {
         );
 
         logRevision(
+          card.projectId,
           actorUserId,
           "update_card",
           getUserName(actorUserId) # " updated card '" # title # "'",
@@ -382,6 +586,7 @@ actor {
         };
 
         logRevision(
+          card.projectId,
           actorUserId,
           "delete_card",
           "Card '" # card.title # "' deleted by " # getUserName(actorUserId),
@@ -427,6 +632,7 @@ actor {
                 columns.add(targetColumnId, { newColumn with cardIds = newCards });
 
                 logRevision(
+                  card.projectId,
                   actorUserId,
                   "move_card",
                   getUserName(actorUserId) # " moved card '" # card.title # "' from '" # oldColumn.name # "' to '" # newColumn.name # "'",
@@ -457,6 +663,7 @@ actor {
         };
 
         logRevision(
+          card.projectId,
           actorUserId,
           "assign_card",
           actorName # " assigned card '" # card.title # "' to " # assignee,
@@ -466,44 +673,20 @@ actor {
     };
   };
 
-  ///////////////////////////
-  // Data Retrieval
-  ///////////////////////////
-
-  type ColumnView = {
-    id : Nat;
-    name : Text;
-    cardIds : [Nat];
-  };
-
-  module ColumnView {
-    public func fromColumn(column : Column) : ColumnView {
-      {
-        id = column.id;
-        name = column.name;
-        cardIds = column.cardIds.toArray();
-      };
-    };
-
-    public func fromColumns(columns : [Column]) : [ColumnView] {
-      columns.map(fromColumn);
-    };
-  };
-
-  public query ({ caller }) func getColumns() : async [ColumnView] {
-    ColumnView.fromColumns(columns.values().toArray().sort());
-  };
-
-  public query ({ caller }) func getCards() : async [Card] {
-    cards.values().toArray().sort();
+  public query ({ caller }) func getCards(projectId : Nat) : async [Card] {
+    cards.values().toArray().filter(
+      func(card) { card.projectId == projectId },
+    ).sort();
   };
 
   ///////////////////////////
   // Revision Log
   ///////////////////////////
 
-  public query ({ caller }) func getRevisions() : async [Revision] {
-    revisions.values().toArray().sort(Revision.compareByTimestamp);
+  public query ({ caller }) func getRevisions(projectId : Nat) : async [Revision] {
+    revisions.values().toArray().filter(
+      func(rev) { rev.projectId == projectId },
+    ).sort(Revision.compareByTimestamp);
   };
 
   public query ({ caller }) func getCardRevisions(cardId : Nat) : async [Revision] {
@@ -517,26 +700,8 @@ actor {
     ).sort(Revision.compareByTimestamp);
   };
 
-  func logRevision(
-    actorUserId : Nat,
-    revType : Text,
-    description : Text,
-    cardId : ?Nat,
-  ) {
-    let rev : Revision = {
-      id = nextRevisionId;
-      actorName = getUserName(actorUserId);
-      timestamp = Time.now();
-      revisionType = revType;
-      description;
-      cardId;
-    };
-    revisions.add(nextRevisionId, rev);
-    nextRevisionId += 1;
-  };
-
-  // This function could be expanded for migration or history purposes
   public shared ({ caller }) func clearRevisions() : async () {
     revisions.clear();
   };
 };
+

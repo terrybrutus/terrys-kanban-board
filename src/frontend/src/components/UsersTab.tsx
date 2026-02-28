@@ -1,26 +1,26 @@
-import { useState } from "react";
-import {
-  UserPlus,
-  Trash2,
-  Loader2,
-  UserCheck,
-  ShieldCheck,
-  AlertCircle,
-  KeyRound,
-  ShieldAlert,
-  RotateCcw,
-} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  AlertCircle,
+  KeyRound,
+  Loader2,
+  RotateCcw,
+  ShieldAlert,
+  ShieldCheck,
+  Trash2,
+  UserCheck,
+  UserPlus,
+} from "lucide-react";
+import { useState } from "react";
 import { toast } from "sonner";
 import {
-  useUsers,
+  useChangeUserPin,
   useCreateUser,
   useDeleteUser,
-  useVerifyPin,
-  useChangeUserPin,
   useResetUserPin,
   useSetAdminPin,
+  useUsers,
+  useVerifyPin,
 } from "../hooks/useQueries";
 import type { User } from "../hooks/useQueries";
 
@@ -45,7 +45,15 @@ interface PinInputProps {
   id?: string;
 }
 
-function PinInput({ value, onChange, onKeyDown, disabled, placeholder = "••••", autoFocus, id }: PinInputProps) {
+function PinInput({
+  value,
+  onChange,
+  onKeyDown,
+  disabled,
+  placeholder = "••••",
+  autoFocus,
+  id,
+}: PinInputProps) {
   return (
     <Input
       id={id}
@@ -89,7 +97,11 @@ function AdminResetForm({ user, onSuccess, onCancel }: AdminResetFormProps) {
     try {
       const adminHash = await hashPin(adminPin);
       const newHash = await hashPin(newPin);
-      await resetUserPin({ userId: user.id, adminPinHash: adminHash, newPinHash: newHash });
+      await resetUserPin({
+        userId: user.id,
+        adminPinHash: adminHash,
+        newPinHash: newHash,
+      });
       toast.success("PIN reset successfully");
       onSuccess(newPin);
     } catch {
@@ -105,21 +117,35 @@ function AdminResetForm({ user, onSuccess, onCancel }: AdminResetFormProps) {
       </div>
       <div className="space-y-2">
         <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground w-20 shrink-0">Admin PIN</span>
+          <span className="text-xs text-muted-foreground w-20 shrink-0">
+            Admin PIN
+          </span>
           <PinInput
             value={adminPin}
-            onChange={(v) => { setAdminPin(v); setError(""); }}
-            onKeyDown={(e) => { if (e.key === "Escape") onCancel(); }}
+            onChange={(v) => {
+              setAdminPin(v);
+              setError("");
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") onCancel();
+            }}
             disabled={isPending}
             autoFocus
           />
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground w-20 shrink-0">New PIN</span>
+          <span className="text-xs text-muted-foreground w-20 shrink-0">
+            New PIN
+          </span>
           <PinInput
             value={newPin}
-            onChange={(v) => { setNewPin(v); setError(""); }}
-            onKeyDown={(e) => { if (e.key === "Escape") onCancel(); }}
+            onChange={(v) => {
+              setNewPin(v);
+              setError("");
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") onCancel();
+            }}
             disabled={isPending}
           />
         </div>
@@ -131,9 +157,19 @@ function AdminResetForm({ user, onSuccess, onCancel }: AdminResetFormProps) {
           onClick={handleReset}
           disabled={adminPin.length !== 4 || newPin.length !== 4 || isPending}
         >
-          {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Reset PIN"}
+          {isPending ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            "Reset PIN"
+          )}
         </Button>
-        <Button size="sm" variant="ghost" className="h-8 text-xs px-3" onClick={onCancel} disabled={isPending}>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-8 text-xs px-3"
+          onClick={onCancel}
+          disabled={isPending}
+        >
           Cancel
         </Button>
       </div>
@@ -150,7 +186,12 @@ interface DeleteConfirmProps {
   onCancel: () => void;
 }
 
-function DeleteConfirm({ user, activeUser, onSetActive, onCancel }: DeleteConfirmProps) {
+function DeleteConfirm({
+  user,
+  activeUser,
+  onSetActive,
+  onCancel,
+}: DeleteConfirmProps) {
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
   const [showForgot, setShowForgot] = useState(false);
@@ -204,7 +245,10 @@ function DeleteConfirm({ user, activeUser, onSetActive, onCancel }: DeleteConfir
       <div className="flex items-center gap-2">
         <PinInput
           value={pin}
-          onChange={(v) => { setPin(v); setError(""); }}
+          onChange={(v) => {
+            setPin(v);
+            setError("");
+          }}
           onKeyDown={(e) => {
             if (e.key === "Enter") handleConfirm();
             if (e.key === "Escape") onCancel();
@@ -219,7 +263,11 @@ function DeleteConfirm({ user, activeUser, onSetActive, onCancel }: DeleteConfir
           onClick={handleConfirm}
           disabled={pin.length !== 4 || isPending}
         >
-          {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Delete"}
+          {isPending ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            "Delete"
+          )}
         </Button>
         <Button
           size="sm"
@@ -250,7 +298,11 @@ interface SetActiveConfirmProps {
   onCancel: () => void;
 }
 
-function SetActiveConfirm({ user, onSuccess, onCancel }: SetActiveConfirmProps) {
+function SetActiveConfirm({
+  user,
+  onSuccess,
+  onCancel,
+}: SetActiveConfirmProps) {
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
   const [showForgot, setShowForgot] = useState(false);
@@ -301,7 +353,10 @@ function SetActiveConfirm({ user, onSuccess, onCancel }: SetActiveConfirmProps) 
       <div className="flex items-center gap-2">
         <PinInput
           value={pin}
-          onChange={(v) => { setPin(v); setError(""); }}
+          onChange={(v) => {
+            setPin(v);
+            setError("");
+          }}
           onKeyDown={(e) => {
             if (e.key === "Enter") handleConfirm();
             if (e.key === "Escape") onCancel();
@@ -315,7 +370,11 @@ function SetActiveConfirm({ user, onSuccess, onCancel }: SetActiveConfirmProps) 
           onClick={() => handleConfirm()}
           disabled={pin.length !== 4 || isPending}
         >
-          {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Confirm"}
+          {isPending ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            "Confirm"
+          )}
         </Button>
         <Button
           size="sm"
@@ -365,7 +424,11 @@ function ChangePinForm({ user, onDone }: ChangePinFormProps) {
     try {
       const oldHash = await hashPin(oldPin);
       const newHash = await hashPin(newPin);
-      await changeUserPin({ userId: user.id, oldPinHash: oldHash, newPinHash: newHash });
+      await changeUserPin({
+        userId: user.id,
+        oldPinHash: oldHash,
+        newPinHash: newHash,
+      });
       toast.success("PIN changed successfully");
       onDone();
     } catch {
@@ -381,29 +444,48 @@ function ChangePinForm({ user, onDone }: ChangePinFormProps) {
       </div>
       <div className="space-y-2">
         <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground w-20 shrink-0">Current PIN</span>
+          <span className="text-xs text-muted-foreground w-20 shrink-0">
+            Current PIN
+          </span>
           <PinInput
             value={oldPin}
-            onChange={(v) => { setOldPin(v); setError(""); }}
-            onKeyDown={(e) => { if (e.key === "Escape") onDone(); }}
+            onChange={(v) => {
+              setOldPin(v);
+              setError("");
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") onDone();
+            }}
             disabled={isPending}
             autoFocus
           />
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground w-20 shrink-0">New PIN</span>
+          <span className="text-xs text-muted-foreground w-20 shrink-0">
+            New PIN
+          </span>
           <PinInput
             value={newPin}
-            onChange={(v) => { setNewPin(v); setError(""); }}
-            onKeyDown={(e) => { if (e.key === "Escape") onDone(); }}
+            onChange={(v) => {
+              setNewPin(v);
+              setError("");
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") onDone();
+            }}
             disabled={isPending}
           />
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground w-20 shrink-0">Confirm PIN</span>
+          <span className="text-xs text-muted-foreground w-20 shrink-0">
+            Confirm PIN
+          </span>
           <PinInput
             value={confirmPin}
-            onChange={(v) => { setConfirmPin(v); setError(""); }}
+            onChange={(v) => {
+              setConfirmPin(v);
+              setError("");
+            }}
             onKeyDown={(e) => {
               if (e.key === "Enter") handleChange();
               if (e.key === "Escape") onDone();
@@ -417,11 +499,26 @@ function ChangePinForm({ user, onDone }: ChangePinFormProps) {
           size="sm"
           className="h-8 text-xs px-3"
           onClick={handleChange}
-          disabled={oldPin.length !== 4 || newPin.length !== 4 || confirmPin.length !== 4 || isPending}
+          disabled={
+            oldPin.length !== 4 ||
+            newPin.length !== 4 ||
+            confirmPin.length !== 4 ||
+            isPending
+          }
         >
-          {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Update PIN"}
+          {isPending ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            "Update PIN"
+          )}
         </Button>
-        <Button size="sm" variant="ghost" className="h-8 text-xs px-3" onClick={onDone} disabled={isPending}>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-8 text-xs px-3"
+          onClick={onDone}
+          disabled={isPending}
+        >
           Cancel
         </Button>
       </div>
@@ -453,9 +550,7 @@ function UserRow({ user, isActive, activeUser, onSetActive }: UserRowProps) {
   return (
     <div
       className={`rounded-lg border transition-colors ${
-        isActive
-          ? "border-primary/40 bg-primary/5"
-          : "border-border bg-card"
+        isActive ? "border-primary/40 bg-primary/5" : "border-border bg-card"
       } p-3`}
     >
       <div className="flex items-center gap-3">
@@ -493,7 +588,9 @@ function UserRow({ user, isActive, activeUser, onSetActive }: UserRowProps) {
               size="sm"
               variant="ghost"
               className="h-7 text-xs px-2 text-muted-foreground hover:text-foreground"
-              onClick={() => setAction(action === "changePin" ? null : "changePin")}
+              onClick={() =>
+                setAction(action === "changePin" ? null : "changePin")
+              }
               title="Change your PIN"
             >
               <KeyRound className="h-3.5 w-3.5" />
@@ -504,7 +601,9 @@ function UserRow({ user, isActive, activeUser, onSetActive }: UserRowProps) {
               size="sm"
               variant="ghost"
               className="h-7 text-xs px-2 text-muted-foreground hover:text-foreground"
-              onClick={() => setAction(action === "setActive" ? null : "setActive")}
+              onClick={() =>
+                setAction(action === "setActive" ? null : "setActive")
+              }
               title="Set as active user"
             >
               <UserCheck className="h-3.5 w-3.5" />
@@ -553,10 +652,7 @@ function UserRow({ user, isActive, activeUser, onSetActive }: UserRowProps) {
         />
       )}
       {action === "changePin" && (
-        <ChangePinForm
-          user={user}
-          onDone={() => setAction(null)}
-        />
+        <ChangePinForm user={user} onDone={() => setAction(null)} />
       )}
     </div>
   );
@@ -583,7 +679,10 @@ function AdminPinCard() {
       setPin("");
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      if (msg.toLowerCase().includes("already") || msg.toLowerCase().includes("already set")) {
+      if (
+        msg.toLowerCase().includes("already") ||
+        msg.toLowerCase().includes("already set")
+      ) {
         setIsConfigured(true);
       } else {
         setError("Failed to set admin PIN");
@@ -613,8 +712,13 @@ function AdminPinCard() {
             <div className="flex items-center gap-3">
               <PinInput
                 value={pin}
-                onChange={(v) => { setPin(v); setError(""); }}
-                onKeyDown={(e) => { if (e.key === "Enter") handleSet(); }}
+                onChange={(v) => {
+                  setPin(v);
+                  setError("");
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleSet();
+                }}
                 disabled={isPending}
               />
               <Button
@@ -650,7 +754,10 @@ interface UsersTabProps {
   onSetActiveUser: (user: User | null) => void;
 }
 
-export default function UsersTab({ activeUser, onSetActiveUser }: UsersTabProps) {
+export default function UsersTab({
+  activeUser,
+  onSetActiveUser,
+}: UsersTabProps) {
   const { data: users = [], isLoading } = useUsers();
   const { mutateAsync: createUser, isPending: isCreating } = useCreateUser();
 
@@ -698,7 +805,10 @@ export default function UsersTab({ activeUser, onSetActiveUser }: UsersTabProps)
         </div>
         <div className="p-5 space-y-3">
           <div className="space-y-1.5">
-            <label htmlFor="user-name-input" className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+            <label
+              htmlFor="user-name-input"
+              className="text-xs font-medium text-muted-foreground uppercase tracking-wide"
+            >
               Name
             </label>
             <Input
@@ -720,19 +830,25 @@ export default function UsersTab({ activeUser, onSetActiveUser }: UsersTabProps)
             )}
           </div>
           <div className="space-y-1.5">
-            <label htmlFor="user-pin-input" className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+            <label
+              htmlFor="user-pin-input"
+              className="text-xs font-medium text-muted-foreground uppercase tracking-wide"
+            >
               4-Digit PIN
             </label>
             <PinInput
               id="user-pin-input"
               value={pin}
-              onChange={(v) => { setPin(v); setPinError(""); }}
-              onKeyDown={(e) => { if (e.key === "Enter") handleAddUser(); }}
+              onChange={(v) => {
+                setPin(v);
+                setPinError("");
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleAddUser();
+              }}
               disabled={isCreating}
             />
-            {pinError && (
-              <p className="text-xs text-destructive">{pinError}</p>
-            )}
+            {pinError && <p className="text-xs text-destructive">{pinError}</p>}
           </div>
           <Button
             className="w-full gap-2"

@@ -1,10 +1,17 @@
-import { useState } from "react";
-import { Trash2, Pencil, ChevronLeft, ChevronRight, GripVertical, UserCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import {
+  ChevronLeft,
+  ChevronRight,
+  GripVertical,
+  Pencil,
+  Trash2,
+  UserCircle2,
+} from "lucide-react";
+import { useState } from "react";
 import type { Card } from "../backend.d";
 import type { User } from "../hooks/useQueries";
 
@@ -39,7 +46,7 @@ export default function KanbanCard({
   onUpdate,
   onAssign,
   users = [],
-  activeUser = null,
+  activeUser: _activeUser = null,
   isMoving = false,
   isDeleting = false,
   isOverlay = false,
@@ -102,9 +109,10 @@ export default function KanbanCard({
   }
 
   // Find the assigned user name
-  const assignedUser = card.assignedUserId != null
-    ? users.find((u) => u.id === card.assignedUserId)
-    : null;
+  const assignedUser =
+    card.assignedUserId != null
+      ? users.find((u) => u.id === card.assignedUserId)
+      : null;
 
   // Generate color from name hash for initials
   function getInitialsColor(name: string): string {
@@ -151,13 +159,20 @@ export default function KanbanCard({
         {/* Assign to section */}
         {users.length > 0 && onAssign && (
           <div className="mb-2 space-y-1">
-            <label htmlFor={`assign-card-${card.id.toString()}`} className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+            <label
+              htmlFor={`assign-card-${card.id.toString()}`}
+              className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide"
+            >
               Assign to
             </label>
             <select
               id={`assign-card-${card.id.toString()}`}
               className="w-full h-8 text-xs rounded-md border border-input bg-background px-2 text-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
-              value={card.assignedUserId != null ? card.assignedUserId.toString() : "unassigned"}
+              value={
+                card.assignedUserId != null
+                  ? card.assignedUserId.toString()
+                  : "unassigned"
+              }
               onChange={(e) => handleAssignChange(e.target.value)}
               disabled={isAssigning}
             >

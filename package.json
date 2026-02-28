@@ -8,10 +8,9 @@
   },
   "scripts": {
     "build": "pnpm -r --if-present run build",
-    "prebuild": "pnpm -r --if-present run prebuild",
-    "pretest": "pnpm -r --if-present run prebuild",
-    "start": "pnpm -r --if-present run start",
-    "test": "pnpm -r --if-present run test"
+    "typecheck": "pnpm -r --if-present run typecheck",
+    "check": "pnpm -r --if-present run check",
+    "fix": "pnpm -r --if-present run fix"
   },
   "devDependencies": {
     "sharp": "^0.34.4"

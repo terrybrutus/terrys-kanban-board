@@ -1,6 +1,13 @@
 import {
-  type ReactNode,
+  AuthClient,
+  type AuthClientCreateOptions,
+  type AuthClientLoginOptions,
+} from "@dfinity/auth-client";
+import type { Identity } from "@icp-sdk/core/agent";
+import { DelegationIdentity, isDelegationValid } from "@icp-sdk/core/identity";
+import {
   type PropsWithChildren,
+  type ReactNode,
   createContext,
   createElement,
   useCallback,
@@ -9,13 +16,6 @@ import {
   useMemo,
   useState,
 } from "react";
-import {
-  AuthClient,
-  type AuthClientCreateOptions,
-  type AuthClientLoginOptions,
-} from "@dfinity/auth-client";
-import type { Identity } from "@icp-sdk/core/agent";
-import { DelegationIdentity, isDelegationValid } from "@icp-sdk/core/identity";
 import { loadConfig } from "../config";
 
 export type Status =

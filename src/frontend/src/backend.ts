@@ -92,19 +92,26 @@ export class ExternalBlob {
 export interface ColumnView {
     id: bigint;
     name: string;
+    projectId: bigint;
     cardIds: Array<bigint>;
 }
 export interface Card {
     id: bigint;
     title: string;
     description?: string;
+    projectId: bigint;
     assignedUserId?: bigint;
     columnId: bigint;
+}
+export interface Project {
+    id: bigint;
+    name: string;
 }
 export interface Revision {
     id: bigint;
     actorName: string;
     description: string;
+    projectId: bigint;
     timestamp: bigint;
     cardId?: bigint;
     revisionType: string;
@@ -118,20 +125,25 @@ export interface backendInterface {
     assignCard(cardId: bigint, userId: bigint | null, actorUserId: bigint): Promise<void>;
     changeUserPin(userId: bigint, oldPinHash: string, newPinHash: string): Promise<void>;
     clearRevisions(): Promise<void>;
-    createCard(title: string, description: string | null, columnId: bigint, actorUserId: bigint): Promise<bigint>;
-    createColumn(name: string, actorUserId: bigint): Promise<bigint>;
+    createCard(title: string, description: string | null, columnId: bigint, actorUserId: bigint, projectId: bigint): Promise<bigint>;
+    createColumn(name: string, actorUserId: bigint, projectId: bigint): Promise<bigint>;
+    createProject(name: string, actorUserId: bigint): Promise<bigint>;
     createUser(name: string, pinHash: string): Promise<bigint>;
     deleteCard(cardId: bigint, actorUserId: bigint): Promise<void>;
     deleteColumn(columnId: bigint, actorUserId: bigint): Promise<void>;
+    deleteProject(projectId: bigint, actorUserId: bigint): Promise<void>;
     deleteUser(id: bigint): Promise<void>;
     getCardRevisions(cardId: bigint): Promise<Array<Revision>>;
-    getCards(): Promise<Array<Card>>;
-    getColumns(): Promise<Array<ColumnView>>;
-    getRevisions(): Promise<Array<Revision>>;
+    getCards(projectId: bigint): Promise<Array<Card>>;
+    getColumns(projectId: bigint): Promise<Array<ColumnView>>;
+    getProjects(): Promise<Array<Project>>;
+    getRevisions(projectId: bigint): Promise<Array<Revision>>;
     getUsers(): Promise<Array<User>>;
     initBoard(): Promise<void>;
+    initDefaultProject(): Promise<bigint>;
     moveCard(cardId: bigint, targetColumnId: bigint, newPosition: bigint, actorUserId: bigint): Promise<void>;
     renameColumn(columnId: bigint, newName: string, actorUserId: bigint): Promise<void>;
+    renameProject(projectId: bigint, newName: string, actorUserId: bigint): Promise<void>;
     reorderColumns(newOrder: Array<bigint>, actorUserId: bigint): Promise<void>;
     resetUserPin(userId: bigint, adminPinHash: string, newPinHash: string): Promise<void>;
     setAdminPin(newPinHash: string): Promise<void>;
@@ -183,31 +195,45 @@ export class Backend implements backendInterface {
             return result;
         }
     }
-    async createCard(arg0: string, arg1: string | null, arg2: bigint, arg3: bigint): Promise<bigint> {
+    async createCard(arg0: string, arg1: string | null, arg2: bigint, arg3: bigint, arg4: bigint): Promise<bigint> {
         if (this.processError) {
             try {
-                const result = await this.actor.createCard(arg0, to_candid_opt_n2(this._uploadFile, this._downloadFile, arg1), arg2, arg3);
+                const result = await this.actor.createCard(arg0, to_candid_opt_n2(this._uploadFile, this._downloadFile, arg1), arg2, arg3, arg4);
                 return result;
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.createCard(arg0, to_candid_opt_n2(this._uploadFile, this._downloadFile, arg1), arg2, arg3);
+            const result = await this.actor.createCard(arg0, to_candid_opt_n2(this._uploadFile, this._downloadFile, arg1), arg2, arg3, arg4);
             return result;
         }
     }
-    async createColumn(arg0: string, arg1: bigint): Promise<bigint> {
+    async createColumn(arg0: string, arg1: bigint, arg2: bigint): Promise<bigint> {
         if (this.processError) {
             try {
-                const result = await this.actor.createColumn(arg0, arg1);
+                const result = await this.actor.createColumn(arg0, arg1, arg2);
                 return result;
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.createColumn(arg0, arg1);
+            const result = await this.actor.createColumn(arg0, arg1, arg2);
+            return result;
+        }
+    }
+    async createProject(arg0: string, arg1: bigint): Promise<bigint> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.createProject(arg0, arg1);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.createProject(arg0, arg1);
             return result;
         }
     }
@@ -253,6 +279,20 @@ export class Backend implements backendInterface {
             return result;
         }
     }
+    async deleteProject(arg0: bigint, arg1: bigint): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.deleteProject(arg0, arg1);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.deleteProject(arg0, arg1);
+            return result;
+        }
+    }
     async deleteUser(arg0: bigint): Promise<void> {
         if (this.processError) {
             try {
@@ -281,45 +321,59 @@ export class Backend implements backendInterface {
             return from_candid_vec_n3(this._uploadFile, this._downloadFile, result);
         }
     }
-    async getCards(): Promise<Array<Card>> {
+    async getCards(arg0: bigint): Promise<Array<Card>> {
         if (this.processError) {
             try {
-                const result = await this.actor.getCards();
+                const result = await this.actor.getCards(arg0);
                 return from_candid_vec_n7(this._uploadFile, this._downloadFile, result);
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.getCards();
+            const result = await this.actor.getCards(arg0);
             return from_candid_vec_n7(this._uploadFile, this._downloadFile, result);
         }
     }
-    async getColumns(): Promise<Array<ColumnView>> {
+    async getColumns(arg0: bigint): Promise<Array<ColumnView>> {
         if (this.processError) {
             try {
-                const result = await this.actor.getColumns();
+                const result = await this.actor.getColumns(arg0);
                 return result;
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.getColumns();
+            const result = await this.actor.getColumns(arg0);
             return result;
         }
     }
-    async getRevisions(): Promise<Array<Revision>> {
+    async getProjects(): Promise<Array<Project>> {
         if (this.processError) {
             try {
-                const result = await this.actor.getRevisions();
+                const result = await this.actor.getProjects();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getProjects();
+            return result;
+        }
+    }
+    async getRevisions(arg0: bigint): Promise<Array<Revision>> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getRevisions(arg0);
                 return from_candid_vec_n3(this._uploadFile, this._downloadFile, result);
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.getRevisions();
+            const result = await this.actor.getRevisions(arg0);
             return from_candid_vec_n3(this._uploadFile, this._downloadFile, result);
         }
     }
@@ -351,6 +405,20 @@ export class Backend implements backendInterface {
             return result;
         }
     }
+    async initDefaultProject(): Promise<bigint> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.initDefaultProject();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.initDefaultProject();
+            return result;
+        }
+    }
     async moveCard(arg0: bigint, arg1: bigint, arg2: bigint, arg3: bigint): Promise<void> {
         if (this.processError) {
             try {
@@ -376,6 +444,20 @@ export class Backend implements backendInterface {
             }
         } else {
             const result = await this.actor.renameColumn(arg0, arg1, arg2);
+            return result;
+        }
+    }
+    async renameProject(arg0: bigint, arg1: string, arg2: bigint): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.renameProject(arg0, arg1, arg2);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.renameProject(arg0, arg1, arg2);
             return result;
         }
     }
@@ -466,6 +548,7 @@ function from_candid_record_n5(_uploadFile: (file: ExternalBlob) => Promise<Uint
     id: bigint;
     actorName: string;
     description: string;
+    projectId: bigint;
     timestamp: bigint;
     cardId: [] | [bigint];
     revisionType: string;
@@ -473,6 +556,7 @@ function from_candid_record_n5(_uploadFile: (file: ExternalBlob) => Promise<Uint
     id: bigint;
     actorName: string;
     description: string;
+    projectId: bigint;
     timestamp: bigint;
     cardId?: bigint;
     revisionType: string;
@@ -481,6 +565,7 @@ function from_candid_record_n5(_uploadFile: (file: ExternalBlob) => Promise<Uint
         id: value.id,
         actorName: value.actorName,
         description: value.description,
+        projectId: value.projectId,
         timestamp: value.timestamp,
         cardId: record_opt_to_undefined(from_candid_opt_n6(_uploadFile, _downloadFile, value.cardId)),
         revisionType: value.revisionType
@@ -490,12 +575,14 @@ function from_candid_record_n9(_uploadFile: (file: ExternalBlob) => Promise<Uint
     id: bigint;
     title: string;
     description: [] | [string];
+    projectId: bigint;
     assignedUserId: [] | [bigint];
     columnId: bigint;
 }): {
     id: bigint;
     title: string;
     description?: string;
+    projectId: bigint;
     assignedUserId?: bigint;
     columnId: bigint;
 } {
@@ -503,6 +590,7 @@ function from_candid_record_n9(_uploadFile: (file: ExternalBlob) => Promise<Uint
         id: value.id,
         title: value.title,
         description: record_opt_to_undefined(from_candid_opt_n10(_uploadFile, _downloadFile, value.description)),
+        projectId: value.projectId,
         assignedUserId: record_opt_to_undefined(from_candid_opt_n6(_uploadFile, _downloadFile, value.assignedUserId)),
         columnId: value.columnId
     };

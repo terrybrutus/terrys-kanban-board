@@ -1,64 +1,86 @@
-import { useEffect, useState, useCallback, useRef } from "react";
-import { Plus, Loader2, Kanban, Heart, Users, LayoutDashboard, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Toaster } from "@/components/ui/sonner";
-import { toast } from "sonner";
 import {
   DndContext,
-  DragOverlay,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  closestCorners,
-  type DragStartEvent,
   type DragEndEvent,
   type DragOverEvent,
+  DragOverlay,
+  type DragStartEvent,
+  PointerSensor,
+  closestCorners,
+  useSensor,
+  useSensors,
 } from "@dnd-kit/core";
-import { arrayMove, SortableContext, horizontalListSortingStrategy } from "@dnd-kit/sortable";
-import KanbanColumn from "./components/KanbanColumn";
-import KanbanCard from "./components/KanbanCard";
-import UsersTab from "./components/UsersTab";
-import ActivityTab from "./components/ActivityTab";
 import {
-  useColumns,
-  useCards,
-  useUsers,
-  useInitBoard,
-  useCreateColumn,
-  useRenameColumn,
-  useDeleteColumn,
-  useCreateCard,
-  useUpdateCard,
-  useDeleteCard,
-  useMoveCard,
+  SortableContext,
+  arrayMove,
+  horizontalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import {
+  Clock,
+  Kanban,
+  LayoutDashboard,
+  Loader2,
+  Plus,
+  Users,
+} from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
+import type { Card, ColumnView } from "./backend.d";
+import ActivityTab from "./components/ActivityTab";
+import KanbanCard from "./components/KanbanCard";
+import KanbanColumn from "./components/KanbanColumn";
+import ProjectSwitcher from "./components/ProjectSwitcher";
+import UsersTab from "./components/UsersTab";
+import { useActor } from "./hooks/useActor";
+import {
   useAssignCard,
+  useCards,
+  useColumns,
+  useCreateCard,
+  useCreateColumn,
+  useDeleteCard,
+  useDeleteColumn,
+  useInitDefaultProject,
+  useMoveCard,
+  useRenameColumn,
   useReorderColumns,
+  useUpdateCard,
+  useUsers,
 } from "./hooks/useQueries";
 import type { User } from "./hooks/useQueries";
-import { useActor } from "./hooks/useActor";
-import type { Card, ColumnView } from "./backend.d";
 
 type TabId = "board" | "users" | "activity";
 
 export default function App() {
   const { actor, isFetching: actorFetching } = useActor();
-  const { data: columns = [], isLoading: columnsLoading } = useColumns();
-  const { data: cards = [], isLoading: cardsLoading } = useCards();
+
+  // ── Active project state ────────────────────────────────────────────────────
+  const [activeProjectId, setActiveProjectId] = useState<bigint | null>(null);
+
+  const { data: columns = [], isLoading: columnsLoading } =
+    useColumns(activeProjectId);
+  const { data: cards = [], isLoading: cardsLoading } =
+    useCards(activeProjectId);
   const { data: users = [] } = useUsers();
 
-  // ── Init board on first actor availability ──────────────────────────────────
-  const { mutateAsync: initBoard } = useInitBoard();
-  const [boardInitialized, setBoardInitialized] = useState(false);
+  // ── Init default project on first actor availability ────────────────────────
+  const { mutateAsync: initDefaultProject } = useInitDefaultProject();
+  const [projectInitialized, setProjectInitialized] = useState(false);
 
   useEffect(() => {
-    if (actor && !actorFetching && !boardInitialized) {
-      setBoardInitialized(true);
-      initBoard().catch(() => {
-        // Silently ignore — board may already be initialized
-      });
+    if (actor && !actorFetching && !projectInitialized) {
+      setProjectInitialized(true);
+      initDefaultProject()
+        .then((projectId) => {
+          setActiveProjectId(projectId);
+        })
+        .catch(() => {
+          // Silently ignore
+        });
     }
-  }, [actor, actorFetching, boardInitialized, initBoard]);
+  }, [actor, actorFetching, projectInitialized, initDefaultProject]);
 
   // ── Tab state ───────────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<TabId>("board");
@@ -95,11 +117,19 @@ export default function App() {
 
   async function submitAddColumn() {
     if (!requireActiveUser()) return;
+    if (!activeProjectId) {
+      toast.error("No active project selected");
+      return;
+    }
     const trimmed = newColumnName.trim();
     if (!trimmed) return;
     setIsAddingColumn(true);
     try {
-      await createColumn({ name: trimmed, actorUserId: activeUser!.id });
+      await createColumn({
+        name: trimmed,
+        actorUserId: activeUser!.id,
+        projectId: activeProjectId,
+      });
       setNewColumnName("");
       setAddingColumn(false);
       toast.success(`Column "${trimmed}" created`);
@@ -122,15 +152,30 @@ export default function App() {
         toast.error("Please set yourself as active in the Users tab first");
         throw new Error("No active user");
       }
+      if (!activeProjectId) {
+        toast.error("No active project selected");
+        throw new Error("No active project");
+      }
       try {
-        await createCard({ title, description, columnId, actorUserId: activeUser.id });
+        await createCard({
+          title,
+          description,
+          columnId,
+          actorUserId: activeUser.id,
+          projectId: activeProjectId,
+        });
       } catch (err) {
-        if (err instanceof Error && err.message === "No active user") throw err;
+        if (
+          err instanceof Error &&
+          (err.message === "No active user" ||
+            err.message === "No active project")
+        )
+          throw err;
         toast.error("Failed to add card");
         throw new Error("Failed to add card");
       }
     },
-    [createCard, activeUser]
+    [createCard, activeUser, activeProjectId],
   );
 
   const handleUpdateCard = useCallback(
@@ -140,14 +185,20 @@ export default function App() {
         throw new Error("No active user");
       }
       try {
-        await updateCard({ cardId, title, description, actorUserId: activeUser.id });
+        await updateCard({
+          cardId,
+          title,
+          description,
+          actorUserId: activeUser.id,
+          projectId: activeProjectId ?? undefined,
+        });
       } catch (err) {
         if (err instanceof Error && err.message === "No active user") throw err;
         toast.error("Failed to update card");
         throw new Error("Failed to update card");
       }
     },
-    [updateCard, activeUser]
+    [updateCard, activeUser, activeProjectId],
   );
 
   const handleDeleteCard = useCallback(
@@ -157,14 +208,18 @@ export default function App() {
         throw new Error("No active user");
       }
       try {
-        await deleteCard({ cardId, actorUserId: activeUser.id });
+        await deleteCard({
+          cardId,
+          actorUserId: activeUser.id,
+          projectId: activeProjectId ?? undefined,
+        });
       } catch (err) {
         if (err instanceof Error && err.message === "No active user") throw err;
         toast.error("Failed to delete card");
         throw new Error("Failed to delete card");
       }
     },
-    [deleteCard, activeUser]
+    [deleteCard, activeUser, activeProjectId],
   );
 
   const handleMoveCard = useCallback(
@@ -174,14 +229,20 @@ export default function App() {
         throw new Error("No active user");
       }
       try {
-        await moveCard({ cardId, targetColumnId, newPosition, actorUserId: activeUser.id });
+        await moveCard({
+          cardId,
+          targetColumnId,
+          newPosition,
+          actorUserId: activeUser.id,
+          projectId: activeProjectId ?? undefined,
+        });
       } catch (err) {
         if (err instanceof Error && err.message === "No active user") throw err;
         toast.error("Failed to move card");
         throw new Error("Failed to move card");
       }
     },
-    [moveCard, activeUser]
+    [moveCard, activeUser, activeProjectId],
   );
 
   const handleRenameColumn = useCallback(
@@ -191,14 +252,19 @@ export default function App() {
         throw new Error("No active user");
       }
       try {
-        await renameColumn({ columnId, newName, actorUserId: activeUser.id });
+        await renameColumn({
+          columnId,
+          newName,
+          actorUserId: activeUser.id,
+          projectId: activeProjectId ?? undefined,
+        });
       } catch (err) {
         if (err instanceof Error && err.message === "No active user") throw err;
         toast.error("Failed to rename column");
         throw new Error("Failed to rename column");
       }
     },
-    [renameColumn, activeUser]
+    [renameColumn, activeUser, activeProjectId],
   );
 
   const handleDeleteColumn = useCallback(
@@ -208,7 +274,11 @@ export default function App() {
         throw new Error("No active user");
       }
       try {
-        await deleteColumn({ columnId, actorUserId: activeUser.id });
+        await deleteColumn({
+          columnId,
+          actorUserId: activeUser.id,
+          projectId: activeProjectId ?? undefined,
+        });
         toast.success("Column deleted");
       } catch (err) {
         if (err instanceof Error && err.message === "No active user") throw err;
@@ -216,7 +286,7 @@ export default function App() {
         throw new Error("Failed to delete column");
       }
     },
-    [deleteColumn, activeUser]
+    [deleteColumn, activeUser, activeProjectId],
   );
 
   const handleAssignCard = useCallback(
@@ -226,14 +296,19 @@ export default function App() {
         throw new Error("No active user");
       }
       try {
-        await assignCard({ cardId, userId, actorUserId: activeUser.id });
+        await assignCard({
+          cardId,
+          userId,
+          actorUserId: activeUser.id,
+          projectId: activeProjectId ?? undefined,
+        });
       } catch (err) {
         if (err instanceof Error && err.message === "No active user") throw err;
         toast.error("Failed to assign card");
         throw new Error("Failed to assign card");
       }
     },
-    [assignCard, activeUser]
+    [assignCard, activeUser, activeProjectId],
   );
 
   // ── Compute cards per column ────────────────────────────────────────────────
@@ -248,28 +323,39 @@ export default function App() {
   const [draggingCardId, setDraggingCardId] = useState<string | null>(null);
   const [draggingColumnId, setDraggingColumnId] = useState<string | null>(null);
   // Optimistic local column → cards map for smooth card drag UI
-  const [localColumnsOverride, setLocalColumnsOverride] = useState<Map<string, string[]> | null>(null);
+  const [localColumnsOverride, setLocalColumnsOverride] = useState<Map<
+    string,
+    string[]
+  > | null>(null);
   // Optimistic local column order for column drag
-  const [localColumnOrder, setLocalColumnOrder] = useState<ColumnView[] | null>(null);
+  const [localColumnOrder, setLocalColumnOrder] = useState<ColumnView[] | null>(
+    null,
+  );
   // Track whether a backend call is in progress so we don't double-fire
   const dndPendingRef = useRef(false);
 
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
   );
 
   // Column sortable IDs (for SortableContext)
   const columnSortableIds = (localColumnOrder ?? columns).map(
-    (col) => `col-header-${col.id.toString()}`
+    (col) => `col-header-${col.id.toString()}`,
   );
 
   function buildLocalMap(cols: ColumnView[]): Map<string, string[]> {
     return new Map(
-      cols.map((col) => [col.id.toString(), col.cardIds.map((id) => id.toString())])
+      cols.map((col) => [
+        col.id.toString(),
+        col.cardIds.map((id) => id.toString()),
+      ]),
     );
   }
 
-  function findColumnForCard(cardIdStr: string, colMap: Map<string, string[]>): string | null {
+  function findColumnForCard(
+    cardIdStr: string,
+    colMap: Map<string, string[]>,
+  ): string | null {
     for (const [colId, cardIds] of colMap.entries()) {
       if (cardIds.includes(cardIdStr)) return colId;
     }
@@ -299,12 +385,13 @@ export default function App() {
       if (!overId.startsWith("col-header-")) return;
 
       const activeIndex = localColumnOrder.findIndex(
-        (c) => `col-header-${c.id.toString()}` === activeId
+        (c) => `col-header-${c.id.toString()}` === activeId,
       );
       const overIndex = localColumnOrder.findIndex(
-        (c) => `col-header-${c.id.toString()}` === overId
+        (c) => `col-header-${c.id.toString()}` === overId,
       );
-      if (activeIndex === -1 || overIndex === -1 || activeIndex === overIndex) return;
+      if (activeIndex === -1 || overIndex === -1 || activeIndex === overIndex)
+        return;
 
       setLocalColumnOrder((prev) => {
         if (!prev) return prev;
@@ -333,7 +420,9 @@ export default function App() {
     setLocalColumnsOverride((prev) => {
       if (!prev) return prev;
       const next = new Map(prev);
-      const src = [...(next.get(sourceColId) ?? [])].filter((id) => id !== activeId);
+      const src = [...(next.get(sourceColId) ?? [])].filter(
+        (id) => id !== activeId,
+      );
       const dst = [...(next.get(targetColId!) ?? [])];
       dst.push(activeId);
       next.set(sourceColId, src);
@@ -375,7 +464,11 @@ export default function App() {
       const optimisticOrder = localColumnOrder;
 
       // Persist
-      reorderColumns({ newOrder: newOrderBigInt, actorUserId: activeUser.id })
+      reorderColumns({
+        newOrder: newOrderBigInt,
+        actorUserId: activeUser.id,
+        projectId: activeProjectId ?? undefined,
+      })
         .catch(() => {
           toast.error("Failed to reorder columns");
           setLocalColumnOrder(null);
@@ -445,9 +538,10 @@ export default function App() {
 
     // Find the original column for comparison
     const originalColId = findColumnForCard(activeId, buildLocalMap(columns));
-    const originalCards = columns
-      .find((c) => c.id.toString() === originalColId)
-      ?.cardIds.map((id) => id.toString()) ?? [];
+    const originalCards =
+      columns
+        .find((c) => c.id.toString() === originalColId)
+        ?.cardIds.map((id) => id.toString()) ?? [];
     const originalPosition = originalCards.indexOf(activeId);
 
     // Skip if nothing changed
@@ -457,7 +551,9 @@ export default function App() {
     }
 
     // Convert IDs to bigint
-    const targetColBigInt = columns.find((c) => c.id.toString() === targetColId)?.id;
+    const targetColBigInt = columns.find(
+      (c) => c.id.toString() === targetColId,
+    )?.id;
     const cardBigInt = cards.find((c) => c.id.toString() === activeId)?.id;
 
     if (!targetColBigInt || !cardBigInt) {
@@ -472,6 +568,7 @@ export default function App() {
       targetColumnId: targetColBigInt,
       newPosition: BigInt(newPosition),
       actorUserId: activeUser.id,
+      projectId: activeProjectId ?? undefined,
     })
       .catch(() => {
         toast.error("Failed to move card");
@@ -488,20 +585,29 @@ export default function App() {
   // Build effective columns/cards for rendering (uses optimistic override when dragging)
   function getEffectiveCardsForColumn(column: ColumnView): Card[] {
     const cardMap = new Map(cards.map((c) => [c.id.toString(), c]));
-    const cardIds = localColumnsOverride?.get(column.id.toString()) ?? column.cardIds.map((id) => id.toString());
-    return cardIds.map((id) => cardMap.get(id)).filter((c): c is Card => c !== undefined);
+    const cardIds =
+      localColumnsOverride?.get(column.id.toString()) ??
+      column.cardIds.map((id) => id.toString());
+    return cardIds
+      .map((id) => cardMap.get(id))
+      .filter((c): c is Card => c !== undefined);
   }
 
-  const draggingCard = draggingCardId ? cards.find((c) => c.id.toString() === draggingCardId) : null;
+  const draggingCard = draggingCardId
+    ? cards.find((c) => c.id.toString() === draggingCardId)
+    : null;
   const draggingCardColumnIndex = draggingCard
     ? effectiveColumns.findIndex((col) =>
-        (localColumnsOverride?.get(col.id.toString()) ?? col.cardIds.map((id) => id.toString())).includes(draggingCardId!)
+        (
+          localColumnsOverride?.get(col.id.toString()) ??
+          col.cardIds.map((id) => id.toString())
+        ).includes(draggingCardId!),
       )
     : 0;
-  const draggingAccentClass =
-    `col-accent-border col-accent-${draggingCardColumnIndex % 6}`;
+  const draggingAccentClass = `col-accent-border col-accent-${draggingCardColumnIndex % 6}`;
 
-  const isLoading = actorFetching || columnsLoading || cardsLoading;
+  const isLoading =
+    actorFetching || columnsLoading || cardsLoading || activeProjectId === null;
 
   // suppress unused warning — getCardsForColumn used in previous version
   void getCardsForColumn;
@@ -512,7 +618,8 @@ export default function App() {
 
       {/* Header */}
       <header className="sticky top-0 z-20 flex items-center gap-3 px-6 h-14 border-b border-border bg-card/80 backdrop-blur-sm">
-        <div className="flex items-center gap-2.5">
+        {/* Logo + Title */}
+        <div className="flex items-center gap-2.5 shrink-0">
           <div className="h-7 w-7 rounded-lg col-accent-0 col-accent-bar flex items-center justify-center">
             <Kanban className="h-4 w-4 text-card" />
           </div>
@@ -521,8 +628,26 @@ export default function App() {
           </h1>
         </div>
 
+        {/* Project switcher */}
+        <div className="shrink-0">
+          <ProjectSwitcher
+            activeProjectId={activeProjectId}
+            onSelectProject={(id) => {
+              setActiveProjectId(id);
+              // Reset local drag state when switching projects
+              setLocalColumnsOverride(null);
+              setLocalColumnOrder(null);
+              setAddingColumn(false);
+            }}
+            activeUser={activeUser}
+          />
+        </div>
+
+        {/* Separator */}
+        <div className="h-5 w-px bg-border shrink-0" />
+
         {/* Tab bar */}
-        <nav className="flex items-center gap-1 ml-6">
+        <nav className="flex items-center gap-1">
           <button
             type="button"
             onClick={() => setActiveTab("board")}
@@ -581,7 +706,7 @@ export default function App() {
               Set active user
             </button>
           )}
-          {isLoading && (
+          {(actorFetching || activeProjectId === null) && (
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
               <span>Loading…</span>
@@ -602,7 +727,7 @@ export default function App() {
                     key={i}
                     className="flex flex-col w-72 shrink-0 rounded-xl bg-card shadow-column overflow-hidden"
                   >
-                    <div className={`h-1 w-full shimmer`} />
+                    <div className="h-1 w-full shimmer" />
                     <div className="px-4 pt-3 pb-2">
                       <div className="h-4 w-24 rounded shimmer" />
                     </div>
@@ -625,7 +750,10 @@ export default function App() {
                 onDragOver={handleDragOver}
                 onDragEnd={handleDragEnd}
               >
-                <SortableContext items={columnSortableIds} strategy={horizontalListSortingStrategy}>
+                <SortableContext
+                  items={columnSortableIds}
+                  strategy={horizontalListSortingStrategy}
+                >
                   <div className="flex gap-5 p-6 overflow-x-auto kanban-board flex-1 items-start">
                     {/* Columns */}
                     {effectiveColumns.map((column, idx) => (
@@ -750,13 +878,11 @@ export default function App() {
                     Your board is empty
                   </h2>
                   <p className="text-sm text-muted-foreground max-w-xs">
-                    Add your first column to start organizing tasks across stages.
+                    Add your first column to start organizing tasks across
+                    stages.
                   </p>
                 </div>
-                <Button
-                  onClick={handleOpenAddColumn}
-                  className="gap-2"
-                >
+                <Button onClick={handleOpenAddColumn} className="gap-2">
                   <Plus className="h-4 w-4" />
                   Add first column
                 </Button>
@@ -769,23 +895,13 @@ export default function App() {
             onSetActiveUser={(user) => setActiveUser(user)}
           />
         ) : (
-          <ActivityTab />
+          <ActivityTab projectId={activeProjectId} />
         )}
       </main>
 
       {/* Footer */}
       <footer className="flex items-center justify-center gap-1.5 py-3 text-xs text-muted-foreground border-t border-border">
-        <span>© 2026. Built with</span>
-        <Heart className="h-3 w-3 fill-current text-destructive" />
-        <span>using</span>
-        <a
-          href="https://caffeine.ai"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="underline underline-offset-2 hover:text-foreground transition-colors"
-        >
-          caffeine.ai
-        </a>
+        <span>© {new Date().getFullYear()}. Created by Terry Brutus</span>
       </footer>
     </div>
   );

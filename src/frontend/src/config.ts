@@ -46,8 +46,8 @@ export async function loadConfig(): Promise<Config> {
 
     const fullConfig = {
       backend_host:
-        config.backend_host == "undefined" ? undefined : config.backend_host,
-      backend_canister_id: (config.backend_canister_id == "undefined"
+        config.backend_host === "undefined" ? undefined : config.backend_host,
+      backend_canister_id: (config.backend_canister_id === "undefined"
         ? backendCanisterId
         : config.backend_canister_id) as string,
       storage_gateway_url: process.env.STORAGE_GATEWAY_URL ?? "nogateway",
@@ -57,7 +57,7 @@ export async function loadConfig(): Promise<Config> {
           ? config.project_id
           : DEFAULT_PROJECT_ID,
       ii_derivation_origin:
-        config.ii_derivation_origin == "undefined"
+        config.ii_derivation_origin === "undefined"
           ? undefined
           : config.ii_derivation_origin,
     };
@@ -88,19 +88,47 @@ function extractAgentErrorMessage(error: string): string {
 
 function processError(e: unknown): never {
   if (e && typeof e === "object" && "message" in e) {
-    throw new Error(extractAgentErrorMessage(e["message"] as string));
-  } else throw e;
+    throw new Error(extractAgentErrorMessage(`${e.message}`));
+  }
+  throw e;
+}
+
+async function maybeLoadMockBackend(): Promise<backendInterface | null> {
+  if (import.meta.env.VITE_USE_MOCK !== "true") {
+    return null;
+  }
+
+  try {
+    // If VITE_USE_MOCK is enabled, try to load a mock backend module *if it exists*.
+    // We use import.meta.glob so builds don't fail when the mock file is absent.
+    const mockModules = import.meta.glob("./mocks/backend.{ts,tsx,js,jsx}");
+
+    const path = Object.keys(mockModules)[0];
+    if (!path) return null;
+
+    const mod = (await mockModules[path]()) as {
+      mockBackend?: backendInterface;
+    };
+
+    return mod.mockBackend ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export async function createActorWithConfig(
   options?: CreateActorOptions,
 ): Promise<backendInterface> {
-  const config = await loadConfig();
-  if (!options) {
-    options = {};
+  // Attempt to load mock backend if enabled
+  const mock = await maybeLoadMockBackend();
+  if (mock) {
+    return mock;
   }
+
+  const config = await loadConfig();
+  const resolvedOptions = options ?? {};
   const agent = new HttpAgent({
-    ...options.agentOptions,
+    ...resolvedOptions.agentOptions,
     host: config.backend_host,
   });
   if (config.backend_host?.includes("localhost")) {
@@ -111,8 +139,8 @@ export async function createActorWithConfig(
       console.error(err);
     });
   }
-  options = {
-    ...options,
+  const actorOptions = {
+    ...resolvedOptions,
     agent: agent,
     processError,
   };
@@ -146,6 +174,6 @@ export async function createActorWithConfig(
     config.backend_canister_id,
     uploadFile,
     downloadFile,
-    options,
+    actorOptions,
   );
 }

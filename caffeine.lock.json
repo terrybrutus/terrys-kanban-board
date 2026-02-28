@@ -4,9 +4,9 @@
     "build_template": "1.0.0"
   },
   "components": {
-    "core-infrastructure": "1.0.2",
+    "core-infrastructure": "1.0.3",
     "shadcn-ui": "1.0.0",
-    "build-template-react": "1.0.0",
+    "build-template-react": "1.1.0",
     "initial-app": "1.0.0"
   },
   "tags": [],

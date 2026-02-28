@@ -1,21 +1,32 @@
-import { useState, useRef, useEffect } from "react";
-import { Plus, Trash2, MoreHorizontal, Check, X, GripVertical } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { useDroppable } from "@dnd-kit/core";
-import { SortableContext, verticalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import KanbanCard from "./KanbanCard";
+import {
+  Check,
+  GripVertical,
+  MoreHorizontal,
+  Plus,
+  Trash2,
+  X,
+} from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import type { Card, ColumnView } from "../backend.d";
 import type { User } from "../hooks/useQueries";
+import KanbanCard from "./KanbanCard";
 
 const ACCENT_CLASSES = [
   "col-accent-0",
@@ -33,10 +44,22 @@ interface KanbanColumnProps {
   totalColumns: number;
   isFirst: boolean;
   isLast: boolean;
-  onAddCard: (columnId: bigint, title: string, description: string | null) => Promise<void>;
-  onUpdateCard: (cardId: bigint, title: string, description: string | null) => Promise<void>;
+  onAddCard: (
+    columnId: bigint,
+    title: string,
+    description: string | null,
+  ) => Promise<void>;
+  onUpdateCard: (
+    cardId: bigint,
+    title: string,
+    description: string | null,
+  ) => Promise<void>;
   onDeleteCard: (cardId: bigint) => Promise<void>;
-  onMoveCard: (cardId: bigint, targetColumnId: bigint, newPosition: bigint) => Promise<void>;
+  onMoveCard: (
+    cardId: bigint,
+    targetColumnId: bigint,
+    newPosition: bigint,
+  ) => Promise<void>;
   onRenameColumn: (columnId: bigint, newName: string) => Promise<void>;
   onDeleteColumn: (columnId: bigint) => Promise<void>;
   onAssignCard: (cardId: bigint, userId: bigint | null) => Promise<void>;
@@ -306,9 +329,13 @@ export default function KanbanColumn({
           } ${accentClass}`}
         >
           {cards.length === 0 && !addingCard && (
-            <div className={`flex flex-col items-center justify-center py-8 col-accent-bg-soft rounded-lg border border-dashed border-border transition-colors ${isOver && !isDraggingColumn ? "border-solid" : ""}`}>
+            <div
+              className={`flex flex-col items-center justify-center py-8 col-accent-bg-soft rounded-lg border border-dashed border-border transition-colors ${isOver && !isDraggingColumn ? "border-solid" : ""}`}
+            >
               <p className="text-xs text-muted-foreground text-center">
-                {isOver && !isDraggingColumn ? "Drop card here" : "No cards yet"}
+                {isOver && !isDraggingColumn
+                  ? "Drop card here"
+                  : "No cards yet"}
               </p>
             </div>
           )}
