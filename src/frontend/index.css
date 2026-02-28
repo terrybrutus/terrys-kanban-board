@@ -1,0 +1,200 @@
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=Outfit:wght@300;400;500;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --radius: 0.75rem;
+
+    /* Warm sand palette */
+    --background: 0.965 0.015 85;
+    --foreground: 0.22 0.02 260;
+    --card: 0.99 0.005 85;
+    --card-foreground: 0.22 0.02 260;
+    --popover: 0.99 0.005 85;
+    --popover-foreground: 0.22 0.02 260;
+    --primary: 0.28 0.06 265;
+    --primary-foreground: 0.97 0 0;
+    --secondary: 0.935 0.02 85;
+    --secondary-foreground: 0.28 0.06 265;
+    --muted: 0.94 0.01 85;
+    --muted-foreground: 0.52 0.03 250;
+    --accent: 0.93 0.02 80;
+    --accent-foreground: 0.22 0.02 260;
+    --destructive: 0.577 0.245 27.325;
+    --destructive-foreground: 0.985 0 0;
+    --border: 0.88 0.015 80;
+    --input: 0.88 0.015 80;
+    --ring: 0.55 0.06 265;
+
+    /* Column accent colors (cycle through these) */
+    --col-1: 0.72 0.19 35;    /* amber-coral */
+    --col-2: 0.65 0.22 165;   /* emerald */
+    --col-3: 0.62 0.21 255;   /* blue */
+    --col-4: 0.7 0.23 310;    /* violet */
+    --col-5: 0.74 0.21 45;    /* orange */
+    --col-6: 0.68 0.19 195;   /* teal */
+
+    --chart-1: 0.646 0.222 41.116;
+    --chart-2: 0.6 0.118 184.704;
+    --chart-3: 0.398 0.07 227.392;
+    --chart-4: 0.828 0.189 84.429;
+    --chart-5: 0.769 0.188 70.08;
+    --sidebar: 0.985 0 0;
+    --sidebar-foreground: 0.145 0 0;
+    --sidebar-primary: 0.205 0 0;
+    --sidebar-primary-foreground: 0.985 0 0;
+    --sidebar-accent: 0.97 0 0;
+    --sidebar-accent-foreground: 0.205 0 0;
+    --sidebar-border: 0.922 0 0;
+    --sidebar-ring: 0.708 0 0;
+  }
+
+  .dark {
+    --background: 0.16 0.02 265;
+    --foreground: 0.95 0.01 85;
+    --card: 0.2 0.025 265;
+    --card-foreground: 0.95 0.01 85;
+    --popover: 0.24 0.03 265;
+    --popover-foreground: 0.95 0.01 85;
+    --primary: 0.85 0.02 85;
+    --primary-foreground: 0.22 0.02 260;
+    --secondary: 0.26 0.03 265;
+    --secondary-foreground: 0.95 0.01 85;
+    --muted: 0.26 0.03 265;
+    --muted-foreground: 0.65 0.02 265;
+    --accent: 0.3 0.04 265;
+    --accent-foreground: 0.95 0.01 85;
+    --destructive: 0.704 0.191 22.216;
+    --destructive-foreground: 0.95 0.01 85;
+    --border: 0.32 0.03 265;
+    --input: 0.32 0.03 265;
+    --ring: 0.65 0.06 265;
+    --chart-1: 0.488 0.243 264.376;
+    --chart-2: 0.696 0.17 162.48;
+    --chart-3: 0.769 0.188 70.08;
+    --chart-4: 0.627 0.265 303.9;
+    --chart-5: 0.645 0.246 16.439;
+    --sidebar: 0.205 0 0;
+    --sidebar-foreground: 0.985 0 0;
+    --sidebar-primary: 0.488 0.243 264.376;
+    --sidebar-primary-foreground: 0.985 0 0;
+    --sidebar-accent: 0.269 0 0;
+    --sidebar-accent-foreground: 0.985 0 0;
+    --sidebar-border: 1 0 0 / 10%;
+    --sidebar-ring: 0.439 0 0;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Outfit', sans-serif;
+  }
+}
+
+@layer utilities {
+  .font-display {
+    font-family: 'Syne', sans-serif;
+  }
+
+  /* Column accent classes */
+  .col-accent-0 { --col-accent: var(--col-1); }
+  .col-accent-1 { --col-accent: var(--col-2); }
+  .col-accent-2 { --col-accent: var(--col-3); }
+  .col-accent-3 { --col-accent: var(--col-4); }
+  .col-accent-4 { --col-accent: var(--col-5); }
+  .col-accent-5 { --col-accent: var(--col-6); }
+
+  .col-accent-bar {
+    background-color: oklch(var(--col-accent));
+  }
+
+  .col-accent-border {
+    border-left-color: oklch(var(--col-accent));
+  }
+
+  .col-accent-text {
+    color: oklch(var(--col-accent));
+  }
+
+  .col-accent-bg-soft {
+    background-color: oklch(var(--col-accent) / 0.08);
+  }
+
+  /* Kanban board scrollbar */
+  .kanban-board {
+    scrollbar-width: thin;
+    scrollbar-color: oklch(var(--border)) transparent;
+  }
+
+  .kanban-board::-webkit-scrollbar {
+    height: 6px;
+  }
+
+  .kanban-board::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .kanban-board::-webkit-scrollbar-thumb {
+    background: oklch(var(--border));
+    border-radius: 3px;
+  }
+
+  /* Card hover reveal */
+  .card-actions {
+    opacity: 0;
+    transition: opacity 0.15s ease;
+  }
+
+  .kanban-card:hover .card-actions {
+    opacity: 1;
+  }
+
+  /* Smooth card transition */
+  .kanban-card {
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+  }
+
+  .kanban-card:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 16px oklch(var(--foreground) / 0.08);
+  }
+
+  /* Column drag-over */
+  .column-drag-over {
+    background-color: oklch(var(--col-accent) / 0.06);
+    outline: 2px dashed oklch(var(--col-accent) / 0.4);
+  }
+
+  /* Skeleton shimmer */
+  @keyframes shimmer {
+    from { background-position: -200% 0; }
+    to   { background-position: 200% 0; }
+  }
+
+  .shimmer {
+    background: linear-gradient(
+      90deg,
+      oklch(var(--muted)) 25%,
+      oklch(var(--secondary)) 50%,
+      oklch(var(--muted)) 75%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+  }
+
+  /* Board load animation */
+  @keyframes slide-up-fade {
+    from { opacity: 0; transform: translateY(16px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .column-enter {
+    animation: slide-up-fade 0.35s ease both;
+  }
+}
