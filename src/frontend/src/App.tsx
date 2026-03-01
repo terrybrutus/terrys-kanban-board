@@ -302,7 +302,11 @@ export default function App() {
 
   // ── Column handler callbacks ────────────────────────────────────────────────
   const handleAddCard = useCallback(
-    async (columnId: bigint, title: string, description: string | null) => {
+    async (
+      columnId: bigint,
+      title: string,
+      description: string | null,
+    ): Promise<bigint> => {
       if (!activeUser) {
         toast.error("Please set yourself as active in the Users tab first");
         throw new Error("No active user");
@@ -312,7 +316,7 @@ export default function App() {
         throw new Error("No active project");
       }
       try {
-        await createCard({
+        return await createCard({
           title,
           description,
           columnId,
@@ -796,6 +800,7 @@ export default function App() {
       tagIds: bigint[],
       assigneeId: bigint | null,
       dueDate: bigint | null,
+      swimlaneId: bigint | null,
     ) => {
       if (!activeUser) {
         toast.error("Please set yourself as active first");
@@ -833,12 +838,21 @@ export default function App() {
           projectId: activeProjectId,
         });
       }
+      if (swimlaneId !== null) {
+        await updateCardSwimlane({
+          cardId,
+          swimlaneId,
+          actorUserId: activeUser.id,
+          projectId: activeProjectId ?? undefined,
+        });
+      }
     },
     [
       createCard,
       updateCardTags,
       assignCard,
       updateCardDueDate,
+      updateCardSwimlane,
       activeUser,
       activeProjectId,
     ],
@@ -1094,6 +1108,20 @@ export default function App() {
     }
   }
 
+  /** Parse a swimlane droppable id like "swimlane-123-col-456" → { swimlaneId: "123", colId: "456" }
+   *  or "swimlane-default-col-456" → { swimlaneId: null, colId: "456" }
+   */
+  function parseSwimlaneDropId(
+    id: string,
+  ): { swimlaneId: string | null; colId: string } | null {
+    const m = id.match(/^swimlane-(.+)-col-(\d+)$/);
+    if (!m) return null;
+    return {
+      swimlaneId: m[1] === "default" ? null : m[1],
+      colId: m[2],
+    };
+  }
+
   function handleDragOver({ active, over }: DragOverEvent) {
     const activeId = active.id as string;
 
@@ -1125,7 +1153,10 @@ export default function App() {
 
     // Determine the target column
     let targetColId: string | null = null;
-    if (overId.startsWith("col-")) {
+    if (overId.startsWith("swimlane-")) {
+      const parsed = parseSwimlaneDropId(overId);
+      if (parsed) targetColId = parsed.colId;
+    } else if (overId.startsWith("col-")) {
       targetColId = overId.replace("col-", "");
     } else if (!overId.startsWith("col-header-")) {
       targetColId = findColumnForCard(overId, localColumnsOverride);
@@ -1218,11 +1249,18 @@ export default function App() {
       return;
     }
 
-    // Determine target column + position
+    // Determine target column + position + swimlane (if applicable)
     let targetColId: string | null = null;
     let targetCardId: string | null = null;
+    let targetSwimlaneId: string | null | undefined = undefined; // undefined = no change
 
-    if (overId.startsWith("col-")) {
+    if (overId.startsWith("swimlane-")) {
+      const parsed = parseSwimlaneDropId(overId);
+      if (parsed) {
+        targetColId = parsed.colId;
+        targetSwimlaneId = parsed.swimlaneId; // null = default lane, string = specific lane
+      }
+    } else if (overId.startsWith("col-")) {
       targetColId = overId.replace("col-", "");
     } else if (!overId.startsWith("col-header-")) {
       targetColId = findColumnForCard(overId, localColumnsOverride);
@@ -1263,8 +1301,21 @@ export default function App() {
         ?.cardIds.map((id) => id.toString()) ?? [];
     const originalPosition = originalCards.indexOf(activeId);
 
-    // Skip if nothing changed
-    if (targetColId === originalColId && newPosition === originalPosition) {
+    // Find the card to determine current swimlane
+    const cardBigInt = cards.find((c) => c.id.toString() === activeId)?.id;
+    const cardObj = cards.find((c) => c.id.toString() === activeId);
+
+    // Check if swimlane changed
+    const currentSwimlaneId = cardObj?.swimlaneId?.toString() ?? null;
+    const swimlaneChanged =
+      targetSwimlaneId !== undefined && targetSwimlaneId !== currentSwimlaneId;
+
+    // Skip if nothing changed (column, position, AND swimlane are all same)
+    if (
+      targetColId === originalColId &&
+      newPosition === originalPosition &&
+      !swimlaneChanged
+    ) {
       setLocalColumnsOverride(null);
       return;
     }
@@ -1273,7 +1324,6 @@ export default function App() {
     const targetColBigInt = columns.find(
       (c) => c.id.toString() === targetColId,
     )?.id;
-    const cardBigInt = cards.find((c) => c.id.toString() === activeId)?.id;
 
     if (!targetColBigInt || !cardBigInt) {
       setLocalColumnsOverride(null);
@@ -1282,13 +1332,37 @@ export default function App() {
 
     // Persist to backend
     dndPendingRef.current = true;
-    moveCard({
-      cardId: cardBigInt,
-      targetColumnId: targetColBigInt,
-      newPosition: BigInt(newPosition),
-      actorUserId: activeUser.id,
-      projectId: activeProjectId ?? undefined,
-    })
+
+    const ops: Promise<unknown>[] = [];
+
+    // Column move (if column or position changed)
+    if (targetColId !== originalColId || newPosition !== originalPosition) {
+      ops.push(
+        moveCard({
+          cardId: cardBigInt,
+          targetColumnId: targetColBigInt,
+          newPosition: BigInt(newPosition),
+          actorUserId: activeUser.id,
+          projectId: activeProjectId ?? undefined,
+        }),
+      );
+    }
+
+    // Swimlane move (if swimlane changed)
+    if (swimlaneChanged && targetSwimlaneId !== undefined) {
+      const newSwimlaneIdBigInt =
+        targetSwimlaneId !== null ? BigInt(targetSwimlaneId) : null;
+      ops.push(
+        updateCardSwimlane({
+          cardId: cardBigInt,
+          swimlaneId: newSwimlaneIdBigInt,
+          actorUserId: activeUser.id,
+          projectId: activeProjectId ?? undefined,
+        }),
+      );
+    }
+
+    Promise.all(ops)
       .catch(() => {
         toast.error("Failed to move card");
       })
