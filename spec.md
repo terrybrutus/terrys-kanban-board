@@ -4,84 +4,83 @@
 
 Full-featured Kanban board with:
 - Multi-project support with dropdown switcher
-- Users + PIN auth (master admin, admins, regular users) with security question reset
-- Drag-and-drop cards between columns; drag-and-drop column reordering
-- Tags (admin-configurable, per-project), due dates, card creation timestamps
-- Swimlanes (optional, off by default) per project
-- Card archiving/restore, delete confirmation
-- Card comments, per-card history (revisions), checklist items
-- Multi-select within a column (checkbox, shift+click, ctrl+click, shift+A) + bulk move
-- Filter bar (assignee, tags, date range, unassigned, text search) + saved presets
-- Quick Add shorthand in column (one line per card, `#Tag`, `@User`, `due:` shortcuts)
-- Bulk card import (JSON or plain text) triggered from column menu
-- JSON export/import (replace/merge) with schema version
-- Undo/Redo (Ctrl+Z/Ctrl+Shift+Z already wired for both Mac metaKey and Windows ctrlKey)
-- Dashboard tab with project health summary
-- Activity tab per project
-
-Backend APIs available (see backend.d.ts):
-- `updateCardSwimlane(cardId, swimlaneId | null, actorUserId)`
-- `createCard(title, description|null, columnId, actorUserId, projectId)`
-- `moveCard(cardId, targetColumnId, newPosition, actorUserId)`
-- `deleteColumn(columnId, actorUserId)`
+- Columns, cards, drag-and-drop (card and column reorder)
+- Swimlanes (optional per project, off by default) — rendered as horizontal bands within columns
+- Users, admin/master-admin roles, PIN auth, quick user switcher in header
+- Tags (per project, admin-configurable), due dates, assignees
+- Card comments, per-card history (revisions), checklists
+- Multi-select within a column (checkbox, shift+click, ctrl+click, Shift+A)
+- Multi-move toolbar: only "Move to column…" currently in the toolbar
+- Bulk card import (per column, inline panel)
+- Filter bar + saved filter presets
+- Export/import JSON (versioned schema)
+- Dashboard tab, Activity tab
+- Undo/Redo (session-only, Ctrl/Cmd+Z)
+- Manual refresh button in header
+- Archive/restore cards
 
 ## Requested Changes (Diff)
 
 ### Add
 
-**Feature 23 — Swimlane selection on create + drag between swimlanes**
-- When swimlanes are enabled for the current project, card creation (normal "Add card" form + Quick Add) must offer a swimlane picker (dropdown of available swimlanes)
-- Drag-and-drop: cards must be droppable from one swimlane row into another within the board. Moving a card to a different swimlane calls `updateCardSwimlane` and logs to activity + card history.
+1. **Swimlane visual distinction** — make swimlane rows clearly distinguishable. Apply alternating subtle background tints on even/odd swimlane rows (e.g. `bg-muted/30` on even, transparent on odd), PLUS keep the existing thicker divider line. Also give the swimlane header row a slightly more prominent background so the label band is clearly visible as a section header.
 
-**Swimlane visual distinction**
-- Use a slightly thicker divider line (border) between swimlane sections — the cleanest approach. No alternating background colors.
+2. **Bulk edit toolbar expansion** — when cards are selected (multi-select mode active), extend the existing toolbar from only "Move to…" to include:
+   - Change Assignee (dropdown of all users + Unassigned)
+   - Add Tag (dropdown of project tags — adds to each selected card without replacing existing)
+   - Remove Tag (dropdown of project tags — removes from each selected card)
+   - Set Due Date (date input)
+   - Archive (archives all selected cards)
+   All bulk actions call the existing per-card mutation for each selected card, clear the selection on success, and log in activity/card history via the normal mutation path.
 
-**Feature 24 — Column delete: immediate confirmation modal (Option B)**
-- Clicking "Delete column" in the column dropdown opens a confirmation dialog immediately (no double-click workaround).
-- If the column has cards, the dialog must also show a destination-column picker. User selects where to move the cards, then confirms. The bulk `moveCards` call runs first, then `deleteColumn`.
-- If the column is empty, just confirm "Delete" with no destination picker.
-
-**Feature 25 — macOS keyboard shortcuts (Cmd key)**
-- Already implemented: `App.tsx` keyboard handler already checks `navigator.platform` and uses `metaKey` for Mac.
-- No additional changes needed here — this is already done.
-
-**Feature 26 — Quick Add: quoted multi-word @User and #Tag (Approach A)**
-- Update `parseQuickAddLine` in `KanbanColumn.tsx` to support:
-  - `@"Terry Brutus"` → assigns to user with name "Terry Brutus"
-  - `#"Waiting for Client"` → applies tag with name "Waiting for Client"
-- Quoted values (`"..."`) are matched first before falling back to single-word matching.
-- Help tooltip in Quick Add panel updated to show quoted examples.
+3. **Manual refresh button** — a small refresh icon button in the header (near the project dropdown or Undo/Redo area) that invalidates all active queries and refetches board data. Uses `queryClient.invalidateQueries()`.
 
 ### Modify
 
-- `KanbanColumn.tsx` — `handleDeleteColumn`: replace current "double-click with confirmDelete state" pattern with proper dialog-based confirmation. Add destination column picker when cards exist.
-- `KanbanColumn.tsx` — `parseQuickAddLine`: add quoted-value regex before single-word regex for `@` and `#` shortcuts.
-- `KanbanColumn.tsx` — Quick Add popover help content: add quoted syntax examples.
-- `KanbanColumn.tsx` — "Add card" inline form: when swimlanesEnabled and swimlanes.length > 0, add a swimlane selector dropdown. On submit, call `createCard` then `updateCardSwimlane` with the selected swimlane.
-- `KanbanColumn.tsx` — Quick Add handler: when swimlanesEnabled, add a swimlane selector before submitting (or a simple per-session default lane picker in the Quick Add panel).
-- `KanbanColumn.tsx` / `App.tsx` — Swimlane drag-and-drop: enable dropping cards into different swimlane rows. Each swimlane section should act as a separate droppable zone. On drop between swimlanes, call `updateCardSwimlane`.
-- `KanbanColumn.tsx` — Swimlane divider: replace the current thin `h-px bg-border/60` divider with a slightly thicker `h-[2px] bg-border` divider for clearer visual separation.
+4. **Swimlane card order scoping fix** — when a card is dropped into a swimlane zone, the position recalculation must be scoped only to cards sharing the same `swimlaneId` in the target column, not all cards in the column. This fixes the "third card kicks out existing cards" bug.
+   - In `App.tsx` `handleDragEnd`, when processing a `swimlane-zone` drop: filter the column's cards to only those with the matching `swimlaneId`, compute the new position as the length of that scoped list (or the correct insertion index), then call `moveCard` with that scoped position.
+   - The swimlane assignment (`updateCardSwimlane`) is called first if the card is changing swimlanes, then `moveCard` with the corrected position.
 
 ### Remove
 
-- `KanbanColumn.tsx` — `confirmDelete` state and the "re-click to confirm" pattern in `handleDeleteColumn`.
+Nothing removed.
 
 ## Implementation Plan
 
-1. **Feature 26 parser fix** — Update `parseQuickAddLine` to extract quoted `@"..."` and `#"..."` before the single-word regex. Update help tooltip with examples like `@"Terry Brutus"` and `#"Waiting for Client"`.
+1. **KanbanColumn.tsx — swimlane visual distinction**
+   - In `groupCardsBySwimlane` render loop, apply alternating `bg-muted/20` (even index) vs transparent (odd index) background to each swimlane section wrapper `<div>`
+   - Give the swimlane header band (`flex items-center gap-2 mb-1.5 px-1`) a `bg-muted/30 rounded-md px-2 py-1` so it reads as a label bar
+   - Keep the existing `h-[2px] bg-border/70` divider
 
-2. **Swimlane visual** — In `KanbanColumn.tsx` swimlane header rendering, change the divider `div` from `h-px bg-border/60` to `h-[2px] bg-border` for a thicker, cleaner separator.
+2. **KanbanColumn.tsx — bulk edit toolbar**
+   - Add state: `bulkAssigneeId`, `bulkTagId`, `bulkDueDate`, `isBulkActing`
+   - In the existing `isSelectionMode` toolbar div, add four new action controls after "Move to…": Assignee dropdown, Add Tag dropdown, Remove Tag dropdown, Due Date input, Archive button
+   - Each action iterates `selectedCardIds`, calls the appropriate prop callback per card, then calls `clearSelection()` and shows a toast
 
-3. **Feature 24 — Column delete dialog** — Replace `confirmDelete` boolean state with a proper `Dialog` component. When the column has cards:
-   - Show a destination column picker (`Select` component with sibling columns).
-   - "Move & Delete" button: calls `onMoveCards(allCardIds, destinationColumnId)` then `onDeleteColumn(column.id)`.
-   When empty: just show "Delete" confirmation with no picker.
+3. **App.tsx — manual refresh button**
+   - Import `useQueryClient` from `@tanstack/react-query`
+   - Add a `RefreshCw` icon button in the header toolbar area
+   - `onClick`: call `queryClient.invalidateQueries()` with no arguments to refetch all active queries
+   - Show a brief loading spinner on the button while refetching, then restore
 
-4. **Feature 23 — Swimlane picker on card create** — In the "Add card" inline form, when `swimlanesEnabled && swimlanes.length > 0`, render a swimlane `Select` dropdown below the description textarea. After `onAddCard` returns the new card ID, call `onUpdateCardSwimlane(newCardId, selectedSwimlaneId)`. The `handleAddCard` in `App.tsx` returns the card ID already from `createCard`, so pass it through.
-   - Note: `handleAddCard` currently returns `void`. Change it to return `bigint` (the new card ID) so the column can chain the swimlane call.
+4. **App.tsx — swimlane drag order fix**
+   - In `handleDragEnd`, find the `swimlane-zone` drop case
+   - Extract `swimlaneId` from the drop target's `data.swimlaneId`
+   - Scope the card list: `const scopedCards = cards.filter(c => c.columnId === targetColId && (swimlaneId === null ? c.swimlaneId == null : c.swimlaneId?.toString() === swimlaneId?.toString()))`
+   - Use `scopedCards.length` (or computed insertion index within scopedCards) as `newPosition`
+   - If the card's swimlane is changing, call `updateCardSwimlane` first, then `moveCard`
 
-5. **Feature 23 — Quick Add swimlane picker** — In the Quick Add panel, when `swimlanesEnabled && swimlanes.length > 0`, add a "Lane:" select dropdown above the textarea. All cards created in that Quick Add batch go into the selected swimlane. After `onQuickAdd` returns the card ID, call `updateCardSwimlane`. Update `handleQuickAdd` in `App.tsx` to return the card ID and accept an optional `swimlaneId`.
+---
 
-6. **Feature 23 — Swimlane drag-and-drop** — Each swimlane group rendered in the column should have its own droppable zone ID (e.g., `swimlane-{swimlaneId}-col-{columnId}`). When a card is dropped into a different swimlane zone (same or different column), call `updateCardSwimlane` in addition to any column move. Update `handleDragEnd` in `App.tsx` to detect swimlane-zone drops and fire `handleUpdateCardSwimlane`.
+## Phase Tracker (do not delete)
 
-7. **Validate and build** — Run typecheck, lint, and build to confirm no type errors.
+- [x] Phase 0 — Base board (columns, cards, drag-drop, users, PIN, activity)
+- [x] Phase 1 — Stable storage, multi-project, admin roles, tags, due dates, card count, quick user switcher
+- [x] Phase 2 — Comments, per-card history, multi-select/multi-move, filter bar
+- [x] Phase 3 — Export/import JSON, bulk card import, saved filter presets, swimlanes
+- [x] Features 16-19 — Checklists, Quick Add, Archive, Dashboard
+- [x] Features 20-22 — Created dates, delete confirmation, undo/redo
+- [x] Features 23-26 — Swimlane drag, column delete UX, macOS shortcuts, Quick Add multi-word
+- [x] Performance pass — query storm eliminated, lazy loading for revisions/checklists/archived
+- [x] Performance pass 2 — load time fixes, stale time, removed polling
+- [ ] Current — Swimlane visual distinction, swimlane order bug fix, bulk edit toolbar, manual refresh

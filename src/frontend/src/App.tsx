@@ -30,6 +30,7 @@ import {
   arrayMove,
   horizontalListSortingStrategy,
 } from "@dnd-kit/sortable";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   BarChart2,
   ChevronDown,
@@ -41,6 +42,7 @@ import {
   Loader2,
   Plus,
   Redo2,
+  RefreshCw,
   Settings,
   Shield,
   Tag,
@@ -107,6 +109,17 @@ type TabId = "board" | "users" | "activity" | "dashboard";
 
 export default function App() {
   const { actor, isFetching: actorFetching } = useActor();
+  const queryClient = useQueryClient();
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  async function handleRefresh() {
+    setIsRefreshing(true);
+    try {
+      await queryClient.invalidateQueries();
+    } finally {
+      setIsRefreshing(false);
+    }
+  }
 
   // ── Admin setup check ───────────────────────────────────────────────────────
   const { data: isAdminSetupDone, isLoading: isAdminSetupLoading } =
@@ -1293,6 +1306,18 @@ export default function App() {
       } else {
         newPosition = overIndex >= 0 ? overIndex : withoutActive.length;
       }
+    } else if (targetSwimlaneId !== undefined) {
+      // Dropping onto a swimlane zone — scope position to cards in that swimlane only
+      const targetSwimlaneIdBigInt =
+        targetSwimlaneId !== null ? targetSwimlaneId : null;
+      const swimlaneScopedCards = targetCards.filter((cardIdStr) => {
+        if (cardIdStr === activeId) return false;
+        const c = cards.find((card) => card.id.toString() === cardIdStr);
+        if (!c) return false;
+        const cardSwimlaneStr = c.swimlaneId?.toString() ?? null;
+        return cardSwimlaneStr === targetSwimlaneIdBigInt;
+      });
+      newPosition = swimlaneScopedCards.length;
     } else {
       const withoutActive = targetCards.filter((id) => id !== activeId);
       newPosition = withoutActive.length;
@@ -1710,6 +1735,19 @@ export default function App() {
               </button>
             </>
           )}
+
+          {/* Manual refresh button */}
+          <button
+            type="button"
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-md text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors disabled:opacity-50 disabled:pointer-events-none"
+            title="Refresh board"
+          >
+            <RefreshCw
+              className={`h-3.5 w-3.5 ${isRefreshing ? "animate-spin" : ""}`}
+            />
+          </button>
 
           {/* Tags button — admin only, shown on board tab */}
           {isAdminUser && activeTab === "board" && activeProjectId && (

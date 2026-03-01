@@ -35,15 +35,19 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
+  Archive,
   ArrowRight,
+  Calendar,
   Check,
   GripVertical,
   HelpCircle,
   Loader2,
   MoreHorizontal,
   Plus,
+  Tag as TagIcon,
   Trash2,
   Upload,
+  UserCircle2,
   X,
   Zap,
 } from "lucide-react";
@@ -1047,10 +1051,12 @@ function KanbanColumnInner({
                   key={
                     group.swimlane ? group.swimlane.id.toString() : "default"
                   }
-                  className={groupIdx > 0 ? "mt-3" : ""}
+                  className={`rounded-lg p-2 mb-1 ${
+                    groupIdx % 2 === 0 ? "bg-muted/25" : "bg-muted/10"
+                  }${groupIdx > 0 ? " mt-2" : ""}`}
                 >
-                  {/* Swimlane header with thicker, cleaner divider */}
-                  <div className="flex items-center gap-2 mb-1.5 px-1">
+                  {/* Swimlane header — visible label bar */}
+                  <div className="flex items-center gap-2 mb-1.5 px-2 py-1 rounded-md bg-muted/40">
                     <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide truncate">
                       {group.swimlane ? group.swimlane.name : "Default"}
                     </span>
@@ -1245,11 +1251,13 @@ function KanbanColumnInner({
 
         {/* Multi-select toolbar */}
         {isSelectionMode && (
-          <div className="mx-3 mb-2 mt-1 rounded-lg bg-primary/10 border border-primary/25 px-3 py-2 flex items-center gap-2">
+          <div className="mx-3 mb-2 mt-1 rounded-lg bg-primary/10 border border-primary/25 px-3 py-2 flex flex-wrap items-center gap-2">
             <span className="text-xs font-semibold text-primary shrink-0">
               {selectedCardIds.size} selected
             </span>
             <div className="flex-1" />
+
+            {/* Move to column */}
             {targetColumns.length > 0 && onMoveCards && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -1279,6 +1287,229 @@ function KanbanColumnInner({
                 </DropdownMenuContent>
               </DropdownMenu>
             )}
+
+            {/* Change Assignee */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-xs px-2 gap-1 border-primary/30 text-primary hover:bg-primary/10"
+                  disabled={isMovingMultiple}
+                >
+                  <UserCircle2 className="h-3 w-3" />
+                  Assignee
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-44">
+                <DropdownMenuItem
+                  onClick={async () => {
+                    setIsMovingMultiple(true);
+                    try {
+                      for (const cardId of cards
+                        .filter((c) => selectedCardIds.has(c.id.toString()))
+                        .map((c) => c.id)) {
+                        await onAssignCard(cardId, null);
+                      }
+                      clearSelection();
+                      toast.success("Assignee cleared");
+                    } catch {
+                      toast.error("Failed to update assignees");
+                    } finally {
+                      setIsMovingMultiple(false);
+                    }
+                  }}
+                >
+                  Unassigned
+                </DropdownMenuItem>
+                {users.map((user) => (
+                  <DropdownMenuItem
+                    key={user.id.toString()}
+                    onClick={async () => {
+                      setIsMovingMultiple(true);
+                      try {
+                        for (const cardId of cards
+                          .filter((c) => selectedCardIds.has(c.id.toString()))
+                          .map((c) => c.id)) {
+                          await onAssignCard(cardId, user.id);
+                        }
+                        clearSelection();
+                        toast.success(`Assigned to ${user.name}`);
+                      } catch {
+                        toast.error("Failed to assign cards");
+                      } finally {
+                        setIsMovingMultiple(false);
+                      }
+                    }}
+                  >
+                    {user.name}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            {/* Add Tag */}
+            {projectTags.length > 0 && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs px-2 gap-1 border-primary/30 text-primary hover:bg-primary/10"
+                    disabled={isMovingMultiple}
+                  >
+                    <TagIcon className="h-3 w-3" />
+                    Add Tag
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-44">
+                  {projectTags.map((tag) => (
+                    <DropdownMenuItem
+                      key={tag.id.toString()}
+                      onClick={async () => {
+                        setIsMovingMultiple(true);
+                        try {
+                          const selectedCards = cards.filter((c) =>
+                            selectedCardIds.has(c.id.toString()),
+                          );
+                          for (const card of selectedCards) {
+                            const existing = card.tags ?? [];
+                            const alreadyHas = existing.some(
+                              (t) => t.toString() === tag.id.toString(),
+                            );
+                            if (!alreadyHas) {
+                              await onUpdateCardTags(card.id, [
+                                ...existing,
+                                tag.id,
+                              ]);
+                            }
+                          }
+                          clearSelection();
+                          toast.success(`Tag "${tag.name}" added`);
+                        } catch {
+                          toast.error("Failed to add tag");
+                        } finally {
+                          setIsMovingMultiple(false);
+                        }
+                      }}
+                    >
+                      {tag.name}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+
+            {/* Remove Tag */}
+            {projectTags.length > 0 && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs px-2 gap-1 border-primary/30 text-primary hover:bg-primary/10"
+                    disabled={isMovingMultiple}
+                  >
+                    <X className="h-3 w-3" />
+                    Remove Tag
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-44">
+                  {projectTags.map((tag) => (
+                    <DropdownMenuItem
+                      key={tag.id.toString()}
+                      onClick={async () => {
+                        setIsMovingMultiple(true);
+                        try {
+                          const selectedCards = cards.filter((c) =>
+                            selectedCardIds.has(c.id.toString()),
+                          );
+                          for (const card of selectedCards) {
+                            const existing = card.tags ?? [];
+                            const updated = existing.filter(
+                              (t) => t.toString() !== tag.id.toString(),
+                            );
+                            if (updated.length !== existing.length) {
+                              await onUpdateCardTags(card.id, updated);
+                            }
+                          }
+                          clearSelection();
+                          toast.success(`Tag "${tag.name}" removed`);
+                        } catch {
+                          toast.error("Failed to remove tag");
+                        } finally {
+                          setIsMovingMultiple(false);
+                        }
+                      }}
+                    >
+                      {tag.name}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+
+            {/* Set Due Date */}
+            <div className="flex items-center gap-1">
+              <Calendar className="h-3 w-3 text-primary" />
+              <input
+                type="date"
+                className="h-7 text-xs px-1.5 rounded border border-primary/30 bg-transparent text-primary focus:outline-none focus:ring-1 focus:ring-primary/40"
+                disabled={isMovingMultiple}
+                title="Set due date for selected cards"
+                onChange={async (e) => {
+                  const val = e.target.value;
+                  if (!val) return;
+                  setIsMovingMultiple(true);
+                  try {
+                    const dueDateBigInt =
+                      BigInt(new Date(val).getTime()) * 1_000_000n;
+                    for (const cardId of cards
+                      .filter((c) => selectedCardIds.has(c.id.toString()))
+                      .map((c) => c.id)) {
+                      await onUpdateCardDueDate(cardId, dueDateBigInt);
+                    }
+                    clearSelection();
+                    toast.success("Due date set");
+                  } catch {
+                    toast.error("Failed to set due date");
+                  } finally {
+                    setIsMovingMultiple(false);
+                    e.target.value = "";
+                  }
+                }}
+              />
+            </div>
+
+            {/* Archive */}
+            {onArchiveCard && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs px-2 gap-1 border-primary/30 text-primary hover:bg-primary/10"
+                disabled={isMovingMultiple}
+                onClick={async () => {
+                  setIsMovingMultiple(true);
+                  try {
+                    for (const cardId of cards
+                      .filter((c) => selectedCardIds.has(c.id.toString()))
+                      .map((c) => c.id)) {
+                      await onArchiveCard(cardId);
+                    }
+                    clearSelection();
+                    toast.success("Cards archived");
+                  } catch {
+                    toast.error("Failed to archive cards");
+                  } finally {
+                    setIsMovingMultiple(false);
+                  }
+                }}
+              >
+                <Archive className="h-3 w-3" />
+                Archive
+              </Button>
+            )}
+
             <button
               type="button"
               className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors shrink-0"
