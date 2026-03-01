@@ -131,7 +131,6 @@ export default function App() {
   const { mutateAsync: saveFilterPreset } = useSaveFilterPreset();
   const { mutateAsync: deleteFilterPreset } = useDeleteFilterPreset();
   const { data: swimlanes = [] } = useSwimlanes(activeProjectId);
-  const { data: archivedCards = [] } = useArchivedCards(activeProjectId);
 
   // ── Init default project on first actor availability ────────────────────────
   const { mutateAsync: initDefaultProject } = useInitDefaultProject();
@@ -256,6 +255,12 @@ export default function App() {
 
   // ── Filter state ────────────────────────────────────────────────────────────
   const [filters, setFilters] = useState<FilterState>(EMPTY_FILTER);
+
+  // Only fetch archived cards when the user has explicitly toggled "show archived".
+  // Fetching them on every project load wastes a canister call on initial board render.
+  const { data: archivedCards = [] } = useArchivedCards(
+    filters.showArchived ? activeProjectId : null,
+  );
 
   // ── Quick user switcher state ────────────────────────────────────────────────
   const [switcherOpen, setSwitcherOpen] = useState(false);
@@ -1068,7 +1073,7 @@ export default function App() {
   const dndPendingRef = useRef(false);
 
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
   );
 
   // Column sortable IDs (for SortableContext)

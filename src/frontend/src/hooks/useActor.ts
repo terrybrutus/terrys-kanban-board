@@ -33,15 +33,13 @@ export function useActor() {
     enabled: true,
   });
 
-  // When the actor changes, invalidate dependent queries
+  // When the actor changes, invalidate dependent queries so they re-fetch
+  // on their own schedule (driven by their `enabled` guards).
+  // Do NOT call refetchQueries here -- that fires every registered query
+  // simultaneously on load, causing a 15+ canister-call storm.
   useEffect(() => {
     if (actorQuery.data) {
       queryClient.invalidateQueries({
-        predicate: (query) => {
-          return !query.queryKey.includes(ACTOR_QUERY_KEY);
-        },
-      });
-      queryClient.refetchQueries({
         predicate: (query) => {
           return !query.queryKey.includes(ACTOR_QUERY_KEY);
         },

@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+
 import {
   Dialog,
   DialogContent,
@@ -40,7 +41,7 @@ import {
   Trash2,
   UserCircle2,
 } from "lucide-react";
-import { useState } from "react";
+import { memo, useState } from "react";
 import type { Card, Swimlane, Tag } from "../backend.d";
 import {
   useAddChecklistItem,
@@ -179,7 +180,7 @@ interface KanbanCardProps {
   onToggleSelect?: (e: React.MouseEvent) => void;
 }
 
-export default function KanbanCard({
+function KanbanCardInner({
   card,
   accentClass,
   canMoveLeft,
@@ -231,13 +232,14 @@ export default function KanbanCard({
     modalOpen ? card.id : null,
   );
   const { data: revisions = [], isLoading: revisionsLoading } =
-    useCardRevisions(card.id);
+    useCardRevisions(modalOpen ? card.id : null);
   const { mutateAsync: addComment, isPending: isAddingComment } =
     useAddComment();
   const { mutateAsync: deleteComment, isPending: isDeletingComment } =
     useDeleteComment();
 
-  // Checklist hooks
+  // Checklist hooks — only load full list when modal is open
+  // For the card-face progress indicator, use the cached count from props instead
   const { data: checklistItems = [], isLoading: checklistLoading } =
     useChecklistItems(modalOpen ? card.id : null);
   const { mutateAsync: addChecklistItem } = useAddChecklistItem();
@@ -1340,3 +1342,6 @@ export default function KanbanCard({
     </>
   );
 }
+
+const KanbanCard = memo(KanbanCardInner);
+export default KanbanCard;

@@ -123,6 +123,7 @@ export function useColumns(projectId: bigint | null) {
       return actor.getColumns(projectId);
     },
     enabled: !!actor && !isFetching && projectId !== null,
+    staleTime: 5_000,
   });
 }
 
@@ -135,6 +136,7 @@ export function useCards(projectId: bigint | null) {
       return actor.getCards(projectId);
     },
     enabled: !!actor && !isFetching && projectId !== null,
+    staleTime: 5_000,
   });
 }
 
@@ -147,18 +149,20 @@ export function useRevisions(projectId: bigint | null) {
       return actor.getRevisions(projectId);
     },
     enabled: !!actor && !isFetching && projectId !== null,
+    // Data considered fresh for 30 seconds to avoid re-fetching on tab switch
+    staleTime: 30_000,
   });
 }
 
-export function useCardRevisions(cardId: bigint) {
+export function useCardRevisions(cardId: bigint | null) {
   const { actor, isFetching } = useActor();
   return useQuery<Revision[]>({
-    queryKey: ["cardRevisions", cardId.toString()],
+    queryKey: ["cardRevisions", cardId?.toString() ?? "none"],
     queryFn: async () => {
-      if (!actor) return [];
+      if (!actor || cardId === null) return [];
       return actor.getCardRevisions(cardId);
     },
-    enabled: !!actor && !isFetching,
+    enabled: !!actor && !isFetching && cardId !== null,
   });
 }
 
@@ -512,6 +516,7 @@ export function useUsers() {
       }));
     },
     enabled: !!actor && !isFetching,
+    staleTime: 30_000,
   });
 }
 
@@ -524,6 +529,7 @@ export function useIsAdminSetup() {
       return actor.isAdminSetup();
     },
     enabled: !!actor && !isFetching,
+    staleTime: 30_000,
   });
 }
 
@@ -673,6 +679,7 @@ export function useProjectTags(projectId: bigint | null) {
       return actor.getProjectTags(projectId);
     },
     enabled: !!actor && !isFetching && projectId !== null,
+    staleTime: 30_000,
   });
 }
 
@@ -891,6 +898,7 @@ export function useFilterPresets(projectId: bigint | null) {
       return actor.getFilterPresets(projectId);
     },
     enabled: !!actor && !isFetching && projectId !== null,
+    staleTime: 30_000,
   });
 }
 
@@ -1012,6 +1020,7 @@ export function useSwimlanes(projectId: bigint | null) {
       return actor.getSwimlanes(projectId);
     },
     enabled: !!actor && !isFetching && projectId !== null,
+    staleTime: 30_000,
   });
 }
 
@@ -1471,6 +1480,8 @@ export function useProjectSummary(projectId: bigint | null) {
       return actor.getProjectSummary(projectId);
     },
     enabled: !!actor && !isFetching && projectId !== null,
-    refetchInterval: 30_000,
+    // No refetchInterval — dashboard fetches on demand when the tab is opened.
+    // Data is considered fresh for 60 seconds to avoid unnecessary re-fetches.
+    staleTime: 60_000,
   });
 }

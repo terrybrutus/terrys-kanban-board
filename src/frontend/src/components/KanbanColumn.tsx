@@ -47,11 +47,58 @@ import {
   X,
   Zap,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { Card, ColumnView, Swimlane, Tag } from "../backend.d";
 import type { User } from "../hooks/useQueries";
 import KanbanCard from "./KanbanCard";
+
+// ── SwimlaneDropZone — defined outside KanbanColumn to avoid creating a new
+//    component type on every render (which would cause full unmount/remount) ──
+function SwimlaneDropZone({
+  dropId,
+  columnId,
+  swimlaneId,
+  isDraggingColumn,
+  children,
+  isEmpty,
+}: {
+  dropId: string;
+  columnId: bigint;
+  swimlaneId: bigint | null;
+  isDraggingColumn: boolean;
+  children: React.ReactNode;
+  isEmpty: boolean;
+}) {
+  const { setNodeRef: setSlDropRef, isOver: isSlOver } = useDroppable({
+    id: dropId,
+    data: {
+      columnId,
+      swimlaneId,
+      type: "swimlane-zone",
+    },
+    disabled: isDraggingColumn,
+  });
+
+  return (
+    <div
+      ref={setSlDropRef}
+      className={`min-h-[40px] rounded-md transition-colors ${
+        isSlOver && !isDraggingColumn
+          ? "bg-primary/5 ring-1 ring-primary/20"
+          : ""
+      } ${isEmpty ? "" : "space-y-2"}`}
+    >
+      {isEmpty && !isSlOver ? (
+        <div className="py-3 text-center text-xs text-muted-foreground/50 italic">
+          Empty
+        </div>
+      ) : (
+        children
+      )}
+    </div>
+  );
+}
 
 const ACCENT_CLASSES = [
   "col-accent-0",
@@ -120,7 +167,7 @@ interface KanbanColumnProps {
   isDraggingColumn?: boolean;
 }
 
-export default function KanbanColumn({
+function KanbanColumnInner({
   column,
   cards,
   columnIndex,
@@ -182,50 +229,6 @@ export default function KanbanColumn({
   const sortedSwimlanes = [...swimlanes].sort((a, b) =>
     Number(a.order - b.order),
   );
-
-  function SwimlaneDropZone({
-    swimlaneId,
-    children,
-    isEmpty,
-  }: {
-    swimlaneId: bigint | null;
-    children: React.ReactNode;
-    isEmpty: boolean;
-  }) {
-    const dropId =
-      swimlaneId != null
-        ? `swimlane-${swimlaneId.toString()}-col-${column.id.toString()}`
-        : `swimlane-default-col-${column.id.toString()}`;
-
-    const { setNodeRef: setSlDropRef, isOver: isSlOver } = useDroppable({
-      id: dropId,
-      data: {
-        columnId: column.id,
-        swimlaneId: swimlaneId,
-        type: "swimlane-zone",
-      },
-      disabled: isDraggingColumn,
-    });
-
-    return (
-      <div
-        ref={setSlDropRef}
-        className={`min-h-[40px] rounded-md transition-colors ${
-          isSlOver && !isDraggingColumn
-            ? "bg-primary/5 ring-1 ring-primary/20"
-            : ""
-        } ${isEmpty ? "" : "space-y-2"}`}
-      >
-        {isEmpty && !isSlOver ? (
-          <div className="py-3 text-center text-xs text-muted-foreground/50 italic">
-            Empty
-          </div>
-        ) : (
-          children
-        )}
-      </div>
-    );
-  }
 
   // ── Rename state ────────────────────────────────────────────────────────────
   const [renaming, setRenaming] = useState(false);
@@ -1059,7 +1062,14 @@ export default function KanbanColumn({
 
                   {/* Swimlane drop zone */}
                   <SwimlaneDropZone
+                    dropId={
+                      group.swimlane != null
+                        ? `swimlane-${group.swimlane.id.toString()}-col-${column.id.toString()}`
+                        : `swimlane-default-col-${column.id.toString()}`
+                    }
+                    columnId={column.id}
                     swimlaneId={group.swimlane ? group.swimlane.id : null}
+                    isDraggingColumn={isDraggingColumn}
                     isEmpty={group.cards.length === 0}
                   >
                     <div className="space-y-2">
@@ -1298,3 +1308,6 @@ export default function KanbanColumn({
     </>
   );
 }
+
+const KanbanColumn = memo(KanbanColumnInner);
+export default KanbanColumn;
