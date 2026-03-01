@@ -456,20 +456,24 @@ function KanbanCardInner({
             : ""
         } ${isSelected ? "ring-2 ring-primary ring-offset-1" : ""}`}
       >
-        {/* Multi-select checkbox */}
-        {(isSelectionMode || isSelected) && !isOverlay && (
+        {/* Multi-select checkbox — always faintly visible so users can discover it;
+            becomes prominent when selected or in selection mode */}
+        {!isOverlay && (
           <button
             type="button"
-            className={`absolute left-1.5 top-1.5 h-5 w-5 rounded flex items-center justify-center transition-colors z-10 ${
+            className={`absolute left-1.5 top-1.5 h-5 w-5 rounded flex items-center justify-center transition-all z-10 ${
               isSelected
-                ? "bg-primary text-primary-foreground"
-                : "bg-secondary border border-border text-transparent hover:border-primary"
+                ? "bg-primary text-primary-foreground opacity-100"
+                : isSelectionMode
+                  ? "bg-secondary border border-border text-transparent hover:border-primary opacity-100"
+                  : "bg-secondary/60 border border-border/40 text-transparent opacity-0 group-hover:opacity-60 hover:!opacity-100 hover:border-primary"
             }`}
             onClick={(e) => {
               e.stopPropagation();
               onToggleSelect?.(e);
             }}
             aria-label={isSelected ? "Deselect card" : "Select card"}
+            title={isSelected ? "Deselect" : "Select card (for bulk actions)"}
           >
             {isSelected && (
               <svg
@@ -515,11 +519,16 @@ function KanbanCardInner({
           }}
           aria-label={`Edit card: ${card.title}`}
         >
-          <p className="text-sm font-medium text-card-foreground leading-snug pr-6">
+          {/* Right padding accounts for: up to 4 action buttons × 24px + gaps ≈ 100px */}
+          <p
+            className={`text-sm font-medium text-card-foreground leading-snug ${isSelectionMode ? "" : "group-hover:pr-[100px] transition-all duration-150"}`}
+          >
             {card.title}
           </p>
           {card.description && (
-            <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed line-clamp-2">
+            <p
+              className={`text-xs text-muted-foreground mt-1.5 leading-relaxed line-clamp-2 ${isSelectionMode ? "" : "group-hover:pr-[100px] transition-all duration-150"}`}
+            >
               {card.description}
             </p>
           )}
