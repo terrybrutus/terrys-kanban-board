@@ -129,6 +129,7 @@ export interface _SERVICE {
   'demoteUser' : ActorMethod<[bigint, bigint], undefined>,
   'disableSwimlanes' : ActorMethod<[bigint, bigint], undefined>,
   'enableSwimlanes' : ActorMethod<[bigint, bigint], undefined>,
+  'getAccessKey' : ActorMethod<[], string>,
   'getArchivedCards' : ActorMethod<[bigint], Array<Card>>,
   'getCardComments' : ActorMethod<[bigint], Array<Comment>>,
   'getCardRevisions' : ActorMethod<[bigint], Array<Revision>>,
@@ -180,6 +181,7 @@ export interface _SERVICE {
     ],
     bigint
   >,
+  'setAccessKey' : ActorMethod<[string, bigint], undefined>,
   'setMasterAdminSecurityQuestion' : ActorMethod<
     [string, string, bigint],
     undefined

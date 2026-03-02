@@ -9,8 +9,6 @@ import Order "mo:core/Order";
 import Runtime "mo:core/Runtime";
 import Iter "mo:core/Iter";
 
-
-
 actor {
   ///////////////////////////
   // Types
@@ -178,6 +176,8 @@ actor {
   var nextFilterPresetId = 1;
   var nextSwimlaneId = 1;
   var nextChecklistItemId = 1;
+
+  var accessKey = "admin123";
 
   ///////////////////////////
   // Helper Functions
@@ -1562,5 +1562,27 @@ actor {
     };
 
     tagMap.toArray();
+  };
+
+  ///////////////////////////
+  // Access Key Management
+  ///////////////////////////
+
+  public query ({ caller }) func getAccessKey() : async Text {
+    accessKey;
+  };
+
+  public shared ({ caller }) func setAccessKey(newKey : Text, actorUserId : Nat) : async () {
+    if (not isMasterAdmin(actorUserId)) {
+      Runtime.trap("Only master admin can change the access key");
+    };
+    accessKey := newKey;
+    logRevision(
+      0,
+      actorUserId,
+      "set_access_key",
+      "Access key changed by master admin",
+      null,
+    );
   };
 };

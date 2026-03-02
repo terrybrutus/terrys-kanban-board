@@ -52,6 +52,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { Card, ColumnView } from "./backend.d";
+import AccessKeyGate from "./components/AccessKeyGate";
 import ActivityTab from "./components/ActivityTab";
 import BulkCardImport from "./components/BulkCardImport";
 import DashboardTab from "./components/DashboardTab";
@@ -65,6 +66,7 @@ import ProjectExportImport from "./components/ProjectExportImport";
 import ProjectSwitcher from "./components/ProjectSwitcher";
 import SwimlanesModal from "./components/SwimlanesModal";
 import TagsModal from "./components/TagsModal";
+import TutorialApp from "./components/TutorialApp";
 import { hashPin } from "./components/UsersTab";
 import { MasterAdminSetup } from "./components/UsersTab";
 import UsersTab from "./components/UsersTab";
@@ -107,10 +109,27 @@ import { useUndoRedo } from "./hooks/useUndoRedo";
 
 type TabId = "board" | "users" | "activity" | "dashboard";
 
+// Detect tutorial route at module level (safe — no hooks needed)
+const IS_TUTORIAL =
+  window.location.pathname === "/tutorial" ||
+  window.location.pathname.startsWith("/tutorial/");
+
 export default function App() {
+  // Render the tutorial app immediately — no backend calls
+  if (IS_TUTORIAL) {
+    return <TutorialApp />;
+  }
+
+  return <AppInner />;
+}
+
+function AppInner() {
   const { actor, isFetching: actorFetching } = useActor();
   const queryClient = useQueryClient();
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // ── Access key gate ─────────────────────────────────────────────────────────
+  const [gateUnlocked, setGateUnlocked] = useState(false);
 
   async function handleRefresh() {
     setIsRefreshing(true);
@@ -1466,8 +1485,13 @@ export default function App() {
     <div className="min-h-screen flex flex-col bg-background">
       <Toaster position="bottom-right" />
 
+      {/* Access key gate — shown until unlocked */}
+      {!gateUnlocked && (
+        <AccessKeyGate onUnlocked={() => setGateUnlocked(true)} />
+      )}
+
       {/* Master Admin Setup overlay */}
-      {showSetupOverlay && (
+      {gateUnlocked && showSetupOverlay && (
         <MasterAdminSetup
           onComplete={(user) => {
             setActiveUser(user);

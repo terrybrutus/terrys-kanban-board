@@ -129,6 +129,7 @@ export const idlService = IDL.Service({
   'demoteUser' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
   'disableSwimlanes' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
   'enableSwimlanes' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
+  'getAccessKey' : IDL.Func([], [IDL.Text], ['query']),
   'getArchivedCards' : IDL.Func([IDL.Nat], [IDL.Vec(Card)], ['query']),
   'getCardComments' : IDL.Func([IDL.Nat], [IDL.Vec(Comment)], ['query']),
   'getCardRevisions' : IDL.Func([IDL.Nat], [IDL.Vec(Revision)], ['query']),
@@ -187,6 +188,7 @@ export const idlService = IDL.Service({
       [IDL.Nat],
       [],
     ),
+  'setAccessKey' : IDL.Func([IDL.Text, IDL.Nat], [], []),
   'setMasterAdminSecurityQuestion' : IDL.Func(
       [IDL.Text, IDL.Text, IDL.Nat],
       [],
@@ -337,6 +339,7 @@ export const idlFactory = ({ IDL }) => {
     'demoteUser' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
     'disableSwimlanes' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
     'enableSwimlanes' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
+    'getAccessKey' : IDL.Func([], [IDL.Text], ['query']),
     'getArchivedCards' : IDL.Func([IDL.Nat], [IDL.Vec(Card)], ['query']),
     'getCardComments' : IDL.Func([IDL.Nat], [IDL.Vec(Comment)], ['query']),
     'getCardRevisions' : IDL.Func([IDL.Nat], [IDL.Vec(Revision)], ['query']),
@@ -399,6 +402,7 @@ export const idlFactory = ({ IDL }) => {
         [IDL.Nat],
         [],
       ),
+    'setAccessKey' : IDL.Func([IDL.Text, IDL.Nat], [], []),
     'setMasterAdminSecurityQuestion' : IDL.Func(
         [IDL.Text, IDL.Text, IDL.Nat],
         [],

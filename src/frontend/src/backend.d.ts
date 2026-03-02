@@ -123,6 +123,7 @@ export interface backendInterface {
     demoteUser(userId: bigint, actorUserId: bigint): Promise<void>;
     disableSwimlanes(projectId: bigint, actorUserId: bigint): Promise<void>;
     enableSwimlanes(projectId: bigint, actorUserId: bigint): Promise<void>;
+    getAccessKey(): Promise<string>;
     getArchivedCards(projectId: bigint): Promise<Array<Card>>;
     getCardComments(cardId: bigint): Promise<Array<Comment>>;
     getCardRevisions(cardId: bigint): Promise<Array<Revision>>;
@@ -154,6 +155,7 @@ export interface backendInterface {
     resetUserPin(userId: bigint, actorUserId: bigint, newPinHash: string): Promise<void>;
     restoreCard(cardId: bigint, actorUserId: bigint): Promise<void>;
     saveFilterPreset(projectId: bigint, createdByUserId: bigint, name: string, assigneeId: bigint | null, tagIds: Array<bigint>, unassignedOnly: boolean, textSearch: string, dateField: string | null, dateFrom: string, dateTo: string): Promise<bigint>;
+    setAccessKey(newKey: string, actorUserId: bigint): Promise<void>;
     setMasterAdminSecurityQuestion(question: string, answerHash: string, actorUserId: bigint): Promise<void>;
     setupMasterAdmin(name: string, pinHash: string): Promise<bigint>;
     updateCard(cardId: bigint, title: string, description: string | null, actorUserId: bigint): Promise<void>;

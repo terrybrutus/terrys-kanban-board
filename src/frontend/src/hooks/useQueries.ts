@@ -1469,6 +1469,41 @@ export function useArchivedCards(projectId: bigint | null) {
   });
 }
 
+// ─── Access key hooks ─────────────────────────────────────────────────────────
+
+export function useGetAccessKey() {
+  const { actor, isFetching } = useActor();
+  return useQuery<string>({
+    queryKey: ["accessKey"],
+    queryFn: async () => {
+      if (!actor) return "";
+      return actor.getAccessKey();
+    },
+    enabled: !!actor && !isFetching,
+    staleTime: 60_000,
+  });
+}
+
+export function useSetAccessKey() {
+  const { actor } = useActor();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      newKey,
+      actorUserId,
+    }: {
+      newKey: string;
+      actorUserId: bigint;
+    }): Promise<void> => {
+      if (!actor) throw new Error("No actor");
+      return actor.setAccessKey(newKey, actorUserId);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["accessKey"] });
+    },
+  });
+}
+
 // ─── Project summary hook ─────────────────────────────────────────────────────
 
 export function useProjectSummary(projectId: bigint | null) {

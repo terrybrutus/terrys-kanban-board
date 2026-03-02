@@ -205,6 +205,7 @@ export interface backendInterface {
     demoteUser(userId: bigint, actorUserId: bigint): Promise<void>;
     disableSwimlanes(projectId: bigint, actorUserId: bigint): Promise<void>;
     enableSwimlanes(projectId: bigint, actorUserId: bigint): Promise<void>;
+    getAccessKey(): Promise<string>;
     getArchivedCards(projectId: bigint): Promise<Array<Card>>;
     getCardComments(cardId: bigint): Promise<Array<Comment>>;
     getCardRevisions(cardId: bigint): Promise<Array<Revision>>;
@@ -236,6 +237,7 @@ export interface backendInterface {
     resetUserPin(userId: bigint, actorUserId: bigint, newPinHash: string): Promise<void>;
     restoreCard(cardId: bigint, actorUserId: bigint): Promise<void>;
     saveFilterPreset(projectId: bigint, createdByUserId: bigint, name: string, assigneeId: bigint | null, tagIds: Array<bigint>, unassignedOnly: boolean, textSearch: string, dateField: string | null, dateFrom: string, dateTo: string): Promise<bigint>;
+    setAccessKey(newKey: string, actorUserId: bigint): Promise<void>;
     setMasterAdminSecurityQuestion(question: string, answerHash: string, actorUserId: bigint): Promise<void>;
     setupMasterAdmin(name: string, pinHash: string): Promise<bigint>;
     updateCard(cardId: bigint, title: string, description: string | null, actorUserId: bigint): Promise<void>;
@@ -581,6 +583,20 @@ export class Backend implements backendInterface {
             }
         } else {
             const result = await this.actor.enableSwimlanes(arg0, arg1);
+            return result;
+        }
+    }
+    async getAccessKey(): Promise<string> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getAccessKey();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getAccessKey();
             return result;
         }
     }
@@ -1015,6 +1031,20 @@ export class Backend implements backendInterface {
             }
         } else {
             const result = await this.actor.saveFilterPreset(arg0, arg1, arg2, to_candid_opt_n1(this._uploadFile, this._downloadFile, arg3), arg4, arg5, arg6, to_candid_opt_n2(this._uploadFile, this._downloadFile, arg7), arg8, arg9);
+            return result;
+        }
+    }
+    async setAccessKey(arg0: string, arg1: bigint): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.setAccessKey(arg0, arg1);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.setAccessKey(arg0, arg1);
             return result;
         }
     }

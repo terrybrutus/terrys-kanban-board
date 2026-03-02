@@ -1,86 +1,43 @@
 # Kanban Board
 
 ## Current State
-
-Full-featured Kanban board with:
-- Multi-project support with dropdown switcher
-- Columns, cards, drag-and-drop (card and column reorder)
-- Swimlanes (optional per project, off by default) — rendered as horizontal bands within columns
-- Users, admin/master-admin roles, PIN auth, quick user switcher in header
-- Tags (per project, admin-configurable), due dates, assignees
-- Card comments, per-card history (revisions), checklists
-- Multi-select within a column (checkbox, shift+click, ctrl+click, Shift+A)
-- Multi-move toolbar: only "Move to column…" currently in the toolbar
-- Bulk card import (per column, inline panel)
-- Filter bar + saved filter presets
-- Export/import JSON (versioned schema)
-- Dashboard tab, Activity tab
-- Undo/Redo (session-only, Ctrl/Cmd+Z)
-- Manual refresh button in header
-- Archive/restore cards
+- Version 19 (in progress): Access key gate on `/`, read-only DemoApp on `/demo` with static seed data (tech course syllabus content, no CRUD, no tutorial)
+- `DemoApp.tsx` exists as a separate static read-only component with fake data
+- App.tsx detects `/demo` path and renders DemoApp instead of main app
+- Main app uses backend queries for all state
 
 ## Requested Changes (Diff)
 
 ### Add
-
-1. **Swimlane visual distinction** — make swimlane rows clearly distinguishable. Apply alternating subtle background tints on even/odd swimlane rows (e.g. `bg-muted/30` on even, transparent on odd), PLUS keep the existing thicker divider line. Also give the swimlane header row a slightly more prominent background so the label band is clearly visible as a section header.
-
-2. **Bulk edit toolbar expansion** — when cards are selected (multi-select mode active), extend the existing toolbar from only "Move to…" to include:
-   - Change Assignee (dropdown of all users + Unassigned)
-   - Add Tag (dropdown of project tags — adds to each selected card without replacing existing)
-   - Remove Tag (dropdown of project tags — removes from each selected card)
-   - Set Due Date (date input)
-   - Archive (archives all selected cards)
-   All bulk actions call the existing per-card mutation for each selected card, clear the selection on success, and log in activity/card history via the normal mutation path.
-
-3. **Manual refresh button** — a small refresh icon button in the header (near the project dropdown or Undo/Redo area) that invalidates all active queries and refetches board data. Uses `queryClient.invalidateQueries()`.
+- `/tutorial` route: full CRUD Kanban board with ephemeral in-memory state (no backend calls, resets on refresh/leave)
+- Toyota-style workflow seed data representing a real pull-system production workflow (realistic cards, tags, due dates, checklists, comments, assigned users)
+- Pre-loaded users: Terry Brutus (Lead/Workflow Owner) + Alex R., Maria T., James K., Sam P.
+- Tutorial overlay on first visit: appears over visible board, "Start Tutorial" and "Skip" buttons. Does NOT auto-force on every subsequent visit (sessionStorage flag).
+- Persistent "Tutorial" button in header so users can re-launch walkthrough at any time if they skipped or want to revisit
+- Step-by-step tutorial walkthrough (6-8 steps) highlighting: board overview, dragging cards, opening a card (details/checklist/comments/tags), creating a card, filter bar, multi-select, undo/redo
+- Amber banner: "This is an interactive portfolio demo of Terry Brutus's Kanban workflow tool. All actions are fully functional -- changes reset when you leave."
+- All CRUD features fully functional in tutorial: create/edit/delete cards, move cards (drag+drop), add/remove tags, assign users, set due dates, checklists, comments, activity log, filter bar, multi-select
 
 ### Modify
-
-4. **Swimlane card order scoping fix** — when a card is dropped into a swimlane zone, the position recalculation must be scoped only to cards sharing the same `swimlaneId` in the target column, not all cards in the column. This fixes the "third card kicks out existing cards" bug.
-   - In `App.tsx` `handleDragEnd`, when processing a `swimlane-zone` drop: filter the column's cards to only those with the matching `swimlaneId`, compute the new position as the length of that scoped list (or the correct insertion index), then call `moveCard` with that scoped position.
-   - The swimlane assignment (`updateCardSwimlane`) is called first if the card is changing swimlanes, then `moveCard` with the corrected position.
+- `App.tsx`: change `/demo` path detection to `/tutorial`, render new `TutorialApp` component instead of `DemoApp`
+- Remove "Back to App" link from tutorial header
+- Remove "Read-only" and "Demo Mode" badges — tutorial is fully interactive
 
 ### Remove
-
-Nothing removed.
+- `DemoApp.tsx` — entire file deleted, replaced by `TutorialApp.tsx`
+- All `/demo` route references in `App.tsx`
+- All "demo" terminology in UI (badges, banners, labels)
 
 ## Implementation Plan
-
-1. **KanbanColumn.tsx — swimlane visual distinction**
-   - In `groupCardsBySwimlane` render loop, apply alternating `bg-muted/20` (even index) vs transparent (odd index) background to each swimlane section wrapper `<div>`
-   - Give the swimlane header band (`flex items-center gap-2 mb-1.5 px-1`) a `bg-muted/30 rounded-md px-2 py-1` so it reads as a label bar
-   - Keep the existing `h-[2px] bg-border/70` divider
-
-2. **KanbanColumn.tsx — bulk edit toolbar**
-   - Add state: `bulkAssigneeId`, `bulkTagId`, `bulkDueDate`, `isBulkActing`
-   - In the existing `isSelectionMode` toolbar div, add four new action controls after "Move to…": Assignee dropdown, Add Tag dropdown, Remove Tag dropdown, Due Date input, Archive button
-   - Each action iterates `selectedCardIds`, calls the appropriate prop callback per card, then calls `clearSelection()` and shows a toast
-
-3. **App.tsx — manual refresh button**
-   - Import `useQueryClient` from `@tanstack/react-query`
-   - Add a `RefreshCw` icon button in the header toolbar area
-   - `onClick`: call `queryClient.invalidateQueries()` with no arguments to refetch all active queries
-   - Show a brief loading spinner on the button while refetching, then restore
-
-4. **App.tsx — swimlane drag order fix**
-   - In `handleDragEnd`, find the `swimlane-zone` drop case
-   - Extract `swimlaneId` from the drop target's `data.swimlaneId`
-   - Scope the card list: `const scopedCards = cards.filter(c => c.columnId === targetColId && (swimlaneId === null ? c.swimlaneId == null : c.swimlaneId?.toString() === swimlaneId?.toString()))`
-   - Use `scopedCards.length` (or computed insertion index within scopedCards) as `newPosition`
-   - If the card's swimlane is changing, call `updateCardSwimlane` first, then `moveCard`
-
----
-
-## Phase Tracker (do not delete)
-
-- [x] Phase 0 — Base board (columns, cards, drag-drop, users, PIN, activity)
-- [x] Phase 1 — Stable storage, multi-project, admin roles, tags, due dates, card count, quick user switcher
-- [x] Phase 2 — Comments, per-card history, multi-select/multi-move, filter bar
-- [x] Phase 3 — Export/import JSON, bulk card import, saved filter presets, swimlanes
-- [x] Features 16-19 — Checklists, Quick Add, Archive, Dashboard
-- [x] Features 20-22 — Created dates, delete confirmation, undo/redo
-- [x] Features 23-26 — Swimlane drag, column delete UX, macOS shortcuts, Quick Add multi-word
-- [x] Performance pass — query storm eliminated, lazy loading for revisions/checklists/archived
-- [x] Performance pass 2 — load time fixes, stale time, removed polling
-- [ ] Current — Swimlane visual distinction, swimlane order bug fix, bulk edit toolbar, manual refresh
+1. Delete `DemoApp.tsx`
+2. Create `TutorialApp.tsx` — self-contained ephemeral full-CRUD Kanban board:
+   - All state managed in React useState (no backend hooks)
+   - Seed data: Toyota production workflow (6 columns: Backlog → In Progress → Review → Testing → Staging → Done; realistic cards with tags, due dates, checklists, comments)
+   - Users: Terry Brutus (master, lead), Alex R., Maria T., James K., Sam P.
+   - Tags: Active, On Hold, Waiting for Approval, Priority, Blocked
+   - Full drag-and-drop (dnd-kit), card modal with checklist + comments, filter bar, multi-select toolbar, activity log tab, dashboard tab
+   - Tutorial overlay component: sessionStorage key `tutorial_seen`; shows on first visit; "Start Tutorial" / "Skip" buttons
+   - Tutorial steps: 6-8 steps with highlight zones and descriptive text
+   - Persistent "Tutorial" button in header to re-open overlay at any time
+   - Amber banner at top
+3. Update `App.tsx`: replace `/demo` detection with `/tutorial`, render `TutorialApp`

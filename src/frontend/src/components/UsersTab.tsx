@@ -4,6 +4,8 @@ import {
   AlertCircle,
   Check,
   Crown,
+  Eye,
+  EyeOff,
   HelpCircle,
   KeyRound,
   Loader2,
@@ -23,10 +25,12 @@ import {
   useCreateUser,
   useDeleteUser,
   useDemoteUser,
+  useGetAccessKey,
   usePromoteUser,
   useRenameUser,
   useResetMasterAdminPinWithSecurityAnswer,
   useResetUserPin,
+  useSetAccessKey,
   useSetMasterAdminSecurityQuestion,
   useSetupMasterAdmin,
   useUsers,
@@ -1371,6 +1375,148 @@ export function MasterAdminSetup({ onComplete }: MasterAdminSetupProps) {
   );
 }
 
+// ── Access Key section (master admin only) ────────────────────────────────────
+const LS_KEY = "kanban_access_key";
+
+interface AccessKeySectionProps {
+  activeUser: User | null;
+}
+
+function AccessKeySection({ activeUser }: AccessKeySectionProps) {
+  const { data: currentKey, isLoading } = useGetAccessKey();
+  const { mutateAsync: setAccessKey, isPending: isSaving } = useSetAccessKey();
+
+  const [showCurrentKey, setShowCurrentKey] = useState(false);
+  const [newKey, setNewKey] = useState("");
+  const [keyError, setKeyError] = useState("");
+  const [saveSuccess, setSaveSuccess] = useState(false);
+
+  if (!activeUser?.isMasterAdmin) return null;
+
+  async function handleSave() {
+    const trimmed = newKey.trim();
+    if (trimmed.length < 6) {
+      setKeyError("Access key must be at least 6 characters");
+      return;
+    }
+    setKeyError("");
+    try {
+      await setAccessKey({ newKey: trimmed, actorUserId: activeUser!.id });
+      // Update localStorage so current session stays unlocked
+      localStorage.setItem(LS_KEY, trimmed);
+      setNewKey("");
+      setSaveSuccess(true);
+      toast.success("Access key updated successfully");
+      setTimeout(() => setSaveSuccess(false), 3000);
+    } catch {
+      toast.error("Failed to update access key");
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-border bg-card shadow-column overflow-hidden">
+      <div className="px-5 pt-4 pb-3 border-b border-border">
+        <h2 className="font-display font-semibold text-base text-foreground flex items-center gap-2">
+          <KeyRound className="h-4 w-4 text-primary" />
+          Access Key
+        </h2>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          Controls who can enter the real app. Only you (master admin) can view
+          or change this.
+        </p>
+      </div>
+
+      <div className="p-5 space-y-4">
+        {/* Current key (masked) */}
+        <div className="space-y-1.5">
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+            Current Key
+          </p>
+          <div className="flex items-center gap-2">
+            <div className="flex-1 h-9 px-3 rounded-md border border-border bg-secondary/40 flex items-center text-sm font-mono text-foreground">
+              {isLoading ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+              ) : showCurrentKey ? (
+                currentKey || "—"
+              ) : (
+                "••••••••"
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowCurrentKey((p) => !p)}
+              className="h-9 w-9 rounded-md border border-border bg-secondary/40 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+              title={showCurrentKey ? "Hide key" : "Reveal key"}
+            >
+              {showCurrentKey ? (
+                <EyeOff className="h-4 w-4" />
+              ) : (
+                <Eye className="h-4 w-4" />
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* New key input */}
+        <div className="space-y-1.5">
+          <label
+            htmlFor="access-key-input"
+            className="text-xs font-medium text-muted-foreground uppercase tracking-wide"
+          >
+            New Access Key
+          </label>
+          <Input
+            id="access-key-input"
+            type="text"
+            placeholder="Enter new key (min. 6 characters)"
+            value={newKey}
+            onChange={(e) => {
+              setNewKey(e.target.value);
+              setKeyError("");
+              setSaveSuccess(false);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleSave();
+            }}
+            disabled={isSaving}
+            className="text-sm"
+          />
+          {keyError && (
+            <p className="text-xs text-destructive flex items-center gap-1">
+              <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+              {keyError}
+            </p>
+          )}
+          {saveSuccess && (
+            <p className="text-xs text-green-600 flex items-center gap-1">
+              <Check className="h-3.5 w-3.5 shrink-0" />
+              Access key saved
+            </p>
+          )}
+        </div>
+
+        <Button
+          className="w-full gap-2"
+          onClick={handleSave}
+          disabled={!newKey.trim() || isSaving}
+        >
+          {isSaving ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Saving…
+            </>
+          ) : (
+            <>
+              <KeyRound className="h-4 w-4" />
+              Update Access Key
+            </>
+          )}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 // ── UsersTab ──────────────────────────────────────────────────────────────────
 interface UsersTabProps {
   activeUser: User | null;
@@ -1417,6 +1563,9 @@ export default function UsersTab({
 
   return (
     <div className="max-w-lg mx-auto px-4 py-8 space-y-8">
+      {/* Access key section — master admin only */}
+      <AccessKeySection activeUser={activeUser} />
+
       {/* Add user form */}
       <div className="rounded-xl border border-border bg-card shadow-column overflow-hidden">
         <div className="px-5 pt-4 pb-3 border-b border-border">
