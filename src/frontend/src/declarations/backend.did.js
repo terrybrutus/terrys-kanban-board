@@ -52,6 +52,7 @@ export const ColumnView = IDL.Record({
   'name' : IDL.Text,
   'projectId' : IDL.Nat,
   'cardIds' : IDL.Vec(IDL.Nat),
+  'isComplete' : IDL.Bool,
 });
 export const FilterPreset = IDL.Record({
   'id' : IDL.Nat,
@@ -189,6 +190,7 @@ export const idlService = IDL.Service({
       [],
     ),
   'setAccessKey' : IDL.Func([IDL.Text, IDL.Nat], [], []),
+  'setColumnComplete' : IDL.Func([IDL.Nat, IDL.Bool, IDL.Nat], [], []),
   'setMasterAdminSecurityQuestion' : IDL.Func(
       [IDL.Text, IDL.Text, IDL.Nat],
       [],
@@ -258,6 +260,7 @@ export const idlFactory = ({ IDL }) => {
     'name' : IDL.Text,
     'projectId' : IDL.Nat,
     'cardIds' : IDL.Vec(IDL.Nat),
+    'isComplete' : IDL.Bool,
   });
   const FilterPreset = IDL.Record({
     'id' : IDL.Nat,
@@ -403,6 +406,7 @@ export const idlFactory = ({ IDL }) => {
         [],
       ),
     'setAccessKey' : IDL.Func([IDL.Text, IDL.Nat], [], []),
+    'setColumnComplete' : IDL.Func([IDL.Nat, IDL.Bool, IDL.Nat], [], []),
     'setMasterAdminSecurityQuestion' : IDL.Func(
         [IDL.Text, IDL.Text, IDL.Nat],
         [],

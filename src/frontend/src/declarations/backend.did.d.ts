@@ -37,6 +37,7 @@ export interface ColumnView {
   'name' : string,
   'projectId' : bigint,
   'cardIds' : Array<bigint>,
+  'isComplete' : boolean,
 }
 export interface Comment {
   'id' : bigint,
@@ -182,6 +183,7 @@ export interface _SERVICE {
     bigint
   >,
   'setAccessKey' : ActorMethod<[string, bigint], undefined>,
+  'setColumnComplete' : ActorMethod<[bigint, boolean, bigint], undefined>,
   'setMasterAdminSecurityQuestion' : ActorMethod<
     [string, string, bigint],
     undefined

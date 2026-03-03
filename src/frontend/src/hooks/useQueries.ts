@@ -244,6 +244,36 @@ export function useRenameColumn() {
   });
 }
 
+export function useSetColumnComplete() {
+  const { actor } = useActor();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      columnId,
+      isComplete,
+      actorUserId = 0n,
+      projectId: _projectId,
+    }: {
+      columnId: bigint;
+      isComplete: boolean;
+      actorUserId?: bigint;
+      projectId?: bigint;
+    }) => {
+      if (!actor) throw new Error("No actor");
+      return actor.setColumnComplete(columnId, isComplete, actorUserId);
+    },
+    onSuccess: (_data, variables) => {
+      if (variables.projectId) {
+        queryClient.invalidateQueries({
+          queryKey: ["columns", variables.projectId.toString()],
+        });
+      } else {
+        queryClient.invalidateQueries({ queryKey: ["columns"] });
+      }
+    },
+  });
+}
+
 export function useDeleteColumn() {
   const { actor } = useActor();
   const queryClient = useQueryClient();

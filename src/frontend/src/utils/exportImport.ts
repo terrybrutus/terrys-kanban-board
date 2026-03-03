@@ -17,7 +17,8 @@ export interface ExportedCard {
   title: string;
   description: string | null;
   order: number;
-  assignedUserId: string | null;
+  /** Assignee stored by name (not ID) for human-readable portability */
+  assigneeName: string | null;
   tags: string[];
   dueDate: string | null;
   createdAt: string;
@@ -110,11 +111,11 @@ export interface ImportResult {
 
 // ─── Export ───────────────────────────────────────────────────────────────────
 
-export async function exportProject(
+export async function exportProjectToString(
   actor: backendInterface,
   projectId: bigint,
   projectName: string,
-): Promise<void> {
+): Promise<string> {
   // Fetch all top-level data in parallel
   const [columns, cards, users, tags, revisions, filterPresets] =
     await Promise.all([
@@ -126,10 +127,8 @@ export async function exportProject(
       actor.getFilterPresets(projectId),
     ]);
 
-  // Build card map for ordering
+  const userIdToName = new Map(users.map((u) => [u.id.toString(), u.name]));
   const cardMap = new Map(cards.map((c) => [c.id.toString(), c]));
-
-  // Fetch per-card comments and revisions in parallel
   const cardDataMap = new Map<
     string,
     { comments: ExportedComment[]; history: ExportedRevision[] }
@@ -160,7 +159,6 @@ export async function exportProject(
     }),
   );
 
-  // Assemble export columns
   const exportColumns: ExportedColumn[] = columns.map((col) => {
     const colCards: ExportedCard[] = col.cardIds
       .map((cardId, idx) => {
@@ -175,7 +173,10 @@ export async function exportProject(
           title: card.title,
           description: card.description ?? null,
           order: idx,
-          assignedUserId: card.assignedUserId?.toString() ?? null,
+          assigneeName:
+            card.assignedUserId != null
+              ? (userIdToName.get(card.assignedUserId.toString()) ?? null)
+              : null,
           tags: (card.tags ?? []).map((t) => t.toString()),
           dueDate: card.dueDate != null ? bigintNsToIso(card.dueDate) : null,
           createdAt: bigintNsToIso(card.createdAt),
@@ -187,7 +188,6 @@ export async function exportProject(
     return { id: col.id.toString(), name: col.name, cards: colCards };
   });
 
-  // Project-level activity (revisions without cardId)
   const activityRevisions: ExportedRevision[] = revisions
     .filter((r) => r.cardId == null)
     .map((r) => ({
@@ -235,8 +235,8 @@ export async function exportProject(
       "project.columns":
         "Columns in order. Each column contains its cards in order.",
       "project.cards.order": "0-based position of the card within its column.",
-      "project.cards.assignedUserId":
-        "References a user ID from the users array.",
+      "project.cards.assigneeName":
+        "Assignee stored by name (not ID) for readability. On import, matched case-insensitively against existing users; unmatched names are auto-created.",
       "project.cards.tags":
         "Array of tag IDs referencing the project.tags array.",
       omittingFields:
@@ -246,9 +246,9 @@ export async function exportProject(
       importModes:
         "'replace' wipes this project and replaces all data. 'merge' adds new items and skips existing ones (conflicts are reported).",
       pinHandling:
-        "PINs are never exported. Imported users are created with no PIN — an admin must set their PIN before they can log in.",
+        "PINs are never exported. Imported users are created with default PIN 0000 — they can log in immediately.",
       badColumnRef:
-        "If a card references a column that does not exist, it is placed in an Unassigned holding area. Move it manually to the correct column. The import result will tell you exactly which cards were affected and why.",
+        "If a card references a column that does not exist, it is placed in an Unassigned holding area. Move it manually to the correct column.",
       activity:
         "Optional. If omitted on import, the activity log for this project starts fresh.",
       filterPresets: "Optional. Saved filter configurations for this project.",
@@ -266,10 +266,18 @@ export async function exportProject(
     },
   };
 
+  return JSON.stringify(payload, null, 2);
+}
+
+export async function exportProject(
+  actor: backendInterface,
+  projectId: bigint,
+  projectName: string,
+): Promise<void> {
+  const jsonStr = await exportProjectToString(actor, projectId, projectName);
+
   // Download
-  const blob = new Blob([JSON.stringify(payload, null, 2)], {
-    type: "application/json",
-  });
+  const blob = new Blob([jsonStr], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -382,10 +390,19 @@ export async function importProject(
 
     // ── 3. Import users ────────────────────────────────────────────────────
     const userIdMap = new Map<string, bigint>(); // original id -> new backend id
+    const userNameMap = new Map<string, bigint>(); // lowercase name -> backend id
 
     const importedUsersPayload: ExportedUser[] = Array.isArray(payload.users)
       ? (payload.users as ExportedUser[])
       : [];
+
+    // Pre-populate userNameMap with existing users
+    {
+      const existingUsers = await actor.getUsers().catch(() => []);
+      for (const eu of existingUsers) {
+        userNameMap.set(eu.name.toLowerCase(), eu.id);
+      }
+    }
 
     if (importedUsersPayload.length > 0) {
       let currentUsers = await actor.getUsers().catch(() => []);
@@ -400,12 +417,21 @@ export async function importProject(
               `User "${u.name}" already exists — skipped, using existing ID.`,
             );
             userIdMap.set(String(u.id), existing.id);
+            userNameMap.set(u.name.toLowerCase(), existing.id);
           } else {
-            const newId = await actor.createUser(u.name, "PIN_NOT_SET");
+            // Hash "0000" as default PIN so imported users can log in immediately
+            const encoder = new TextEncoder();
+            const data = encoder.encode("0000");
+            const buffer = await crypto.subtle.digest("SHA-256", data);
+            const defaultPinHash = Array.from(new Uint8Array(buffer))
+              .map((b) => b.toString(16).padStart(2, "0"))
+              .join("");
+            const newId = await actor.createUser(u.name, defaultPinHash);
             userIdMap.set(String(u.id), newId);
+            userNameMap.set(u.name.toLowerCase(), newId);
             result.counts.usersImported++;
             result.warnings.push(
-              `User "${u.name}" imported with PIN not set — an admin must set their PIN.`,
+              `User "${u.name}" imported with default PIN 0000 — they can log in immediately and should change their PIN.`,
             );
             // Refresh user list after creation
             currentUsers = await actor.getUsers().catch(() => currentUsers);
@@ -426,28 +452,55 @@ export async function importProject(
     if (importedTags.length > 0) {
       const currentTags = await actor.getProjectTags(projectId).catch(() => []);
 
-      for (const t of importedTags) {
-        try {
+      // Check if active user has admin privileges (required for tag creation)
+      const allUsersForTagCheck = await actor.getUsers().catch(() => []);
+      const activeUserObj = allUsersForTagCheck.find(
+        (u) => u.id.toString() === activeUserId.toString(),
+      );
+      const canCreateTags =
+        activeUserObj?.isAdmin === true ||
+        activeUserObj?.isMasterAdmin === true;
+
+      if (!canCreateTags) {
+        // Still try to match existing tags by name, but skip creation
+        for (const t of importedTags) {
           const existing = currentTags.find(
             (ct) => ct.name.toLowerCase() === (t.name ?? "").toLowerCase(),
           );
-          if (existing && importMode === "merge") {
-            result.warnings.push(
-              `Tag "${t.name}" already exists — using existing.`,
-            );
+          if (existing) {
             tagIdMap.set(String(t.id), existing.id);
-          } else {
-            const newId = await actor.createTag(
-              projectId,
-              t.name ?? "Unnamed Tag",
-              t.color ?? "#94a3b8",
-              activeUserId,
-            );
-            tagIdMap.set(String(t.id), newId);
-            result.counts.tagsImported++;
           }
-        } catch (e) {
-          result.errors.push(`Failed to import tag "${t.name}": ${String(e)}`);
+        }
+        result.warnings.push(
+          "Tag creation requires admin privileges — new tags were not created. Existing tags were matched by name. Re-run the import while logged in as an admin to import new tags.",
+        );
+      } else {
+        for (const t of importedTags) {
+          try {
+            const existing = currentTags.find(
+              (ct) => ct.name.toLowerCase() === (t.name ?? "").toLowerCase(),
+            );
+            if (existing && importMode === "merge") {
+              result.warnings.push(
+                `Tag "${t.name}" already exists — using existing.`,
+              );
+              tagIdMap.set(String(t.id), existing.id);
+            } else {
+              const newId = await actor.createTag(
+                projectId,
+                t.name ?? "Unnamed Tag",
+                t.color ?? "#94a3b8",
+                activeUserId,
+              );
+              tagIdMap.set(String(t.id), newId);
+              result.counts.tagsImported++;
+            }
+          } catch (e) {
+            // Tag errors are warnings (non-fatal) — cards can still import without tags
+            result.warnings.push(
+              `Could not import tag "${t.name}": ${String(e)}`,
+            );
+          }
         }
       }
     }
@@ -520,9 +573,16 @@ export async function importProject(
           cardIdMap.set(String(card.id), newCardId);
           result.counts.cardsImported++;
 
-          // Assign user
-          if (card.assignedUserId) {
-            const mappedUserId = userIdMap.get(String(card.assignedUserId));
+          // Assign user by name (new format) or legacy assignedUserId fallback
+          const assigneeName =
+            (card as ExportedCard & { assigneeName?: string | null })
+              .assigneeName ?? null;
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const legacyAssigneeId = (card as any).assignedUserId ?? null;
+
+          if (assigneeName) {
+            // Resolve by name (case-insensitive)
+            const mappedUserId = userNameMap.get(assigneeName.toLowerCase());
             if (mappedUserId) {
               await actor
                 .assignCard(newCardId, mappedUserId, activeUserId)
@@ -533,7 +593,23 @@ export async function importProject(
                 });
             } else {
               result.warnings.push(
-                `Card "${card.title}": assigned user ID "${card.assignedUserId}" not found — left unassigned.`,
+                `Card "${card.title}": assignee "${assigneeName}" not found — left unassigned.`,
+              );
+            }
+          } else if (legacyAssigneeId) {
+            // Legacy ID-based fallback
+            const mappedUserId = userIdMap.get(String(legacyAssigneeId));
+            if (mappedUserId) {
+              await actor
+                .assignCard(newCardId, mappedUserId, activeUserId)
+                .catch((e: unknown) => {
+                  result.warnings.push(
+                    `Could not assign card "${card.title}": ${String(e)}`,
+                  );
+                });
+            } else {
+              result.warnings.push(
+                `Card "${card.title}": assigned user ID "${legacyAssigneeId}" not found — left unassigned.`,
               );
             }
           }

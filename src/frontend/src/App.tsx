@@ -58,6 +58,7 @@ import BulkCardImport from "./components/BulkCardImport";
 import DashboardTab from "./components/DashboardTab";
 import FilterBar, {
   EMPTY_FILTER,
+  isFilterActive,
   type FilterState,
 } from "./components/FilterBar";
 import KanbanCard from "./components/KanbanCard";
@@ -96,6 +97,7 @@ import {
   useReorderColumns,
   useRestoreCard,
   useSaveFilterPreset,
+  useSetColumnComplete,
   useSwimlanes,
   useUpdateCard,
   useUpdateCardDueDate,
@@ -261,6 +263,7 @@ function AppInner() {
   const { mutateAsync: renameColumn } = useRenameColumn();
   const { mutateAsync: deleteColumn } = useDeleteColumn();
   const { mutateAsync: reorderColumns } = useReorderColumns();
+  const { mutateAsync: setColumnComplete } = useSetColumnComplete();
 
   // ── Card mutations ──────────────────────────────────────────────────────────
   const { mutateAsync: createCard } = useCreateCard();
@@ -554,26 +557,119 @@ function AppInner() {
     [renameColumn, activeUser, activeProjectId],
   );
 
+  const handleSetColumnComplete = useCallback(
+    async (columnId: bigint, isComplete: boolean) => {
+      if (!activeUser) {
+        toast.error("Please set yourself as active first");
+        return;
+      }
+      try {
+        await setColumnComplete({
+          columnId,
+          isComplete,
+          actorUserId: activeUser.id,
+          projectId: activeProjectId ?? undefined,
+        });
+        toast.success(
+          isComplete ? "Column marked as complete" : "Column unmarked",
+        );
+      } catch {
+        toast.error("Failed to update column");
+      }
+    },
+    [setColumnComplete, activeUser, activeProjectId],
+  );
+
   const handleDeleteColumn = useCallback(
-    async (columnId: bigint) => {
+    async (columnId: bigint, destinationColumnId?: bigint) => {
       if (!activeUser) {
         toast.error("Please set yourself as active in the Users tab first");
         throw new Error("No active user");
       }
+
+      const capturedColumn = columns.find((c) => c.id === columnId);
+      const capturedCardIds = capturedColumn?.cardIds ?? [];
+      const capturedUserId = activeUser.id;
+      const capturedProjectId = activeProjectId;
+
       try {
+        // STEP 1: Move all cards to destination BEFORE deleting
+        if (destinationColumnId != null && capturedCardIds.length > 0) {
+          await moveCards({
+            cardIds: capturedCardIds,
+            targetColumnId: destinationColumnId,
+            actorUserId: capturedUserId,
+            projectId: capturedProjectId ?? undefined,
+          });
+          // Wait for state to propagate
+          await new Promise((r) => setTimeout(r, 200));
+        }
+
+        // STEP 2: Delete the column (now empty)
         await deleteColumn({
           columnId,
-          actorUserId: activeUser.id,
-          projectId: activeProjectId ?? undefined,
+          actorUserId: capturedUserId,
+          projectId: capturedProjectId ?? undefined,
         });
         toast.success("Column deleted");
+
+        // Push undo
+        if (capturedColumn) {
+          pushUndo({
+            label: `Delete column "${capturedColumn.name}"`,
+            undoFn: async () => {
+              const newColId = await createColumn({
+                name: capturedColumn.name,
+                actorUserId: capturedUserId,
+                projectId: capturedProjectId ?? (0n as bigint),
+              });
+              if (capturedCardIds.length > 0) {
+                await moveCards({
+                  cardIds: capturedCardIds,
+                  targetColumnId: newColId,
+                  actorUserId: capturedUserId,
+                  projectId: capturedProjectId ?? undefined,
+                });
+              }
+            },
+            redoFn: async () => {
+              const currentCols = columns;
+              const col = currentCols.find(
+                (c) => c.name === capturedColumn.name,
+              );
+              if (col) {
+                if (col.cardIds.length > 0 && destinationColumnId != null) {
+                  await moveCards({
+                    cardIds: col.cardIds,
+                    targetColumnId: destinationColumnId,
+                    actorUserId: capturedUserId,
+                    projectId: capturedProjectId ?? undefined,
+                  });
+                }
+                await deleteColumn({
+                  columnId: col.id,
+                  actorUserId: capturedUserId,
+                  projectId: capturedProjectId ?? undefined,
+                });
+              }
+            },
+          });
+        }
       } catch (err) {
         if (err instanceof Error && err.message === "No active user") throw err;
         toast.error("Failed to delete column");
         throw new Error("Failed to delete column");
       }
     },
-    [deleteColumn, activeUser, activeProjectId],
+    [
+      deleteColumn,
+      createColumn,
+      moveCards,
+      activeUser,
+      activeProjectId,
+      columns,
+      pushUndo,
+    ],
   );
 
   const handleAssignCard = useCallback(
@@ -1052,11 +1148,11 @@ function AppInner() {
         if (card.assignedUserId?.toString() !== filters.assigneeId.toString())
           return false;
       }
-      // Tag filter (card must have ALL selected tags)
+      // Tag filter (card must have ANY of the selected tags — OR logic)
       if (filters.tagIds.length > 0) {
         const cardTagStrs = (card.tags ?? []).map((t) => t.toString());
-        const hasAll = filters.tagIds.every((tid) => cardTagStrs.includes(tid));
-        if (!hasAll) return false;
+        const hasAny = filters.tagIds.some((tid) => cardTagStrs.includes(tid));
+        if (!hasAny) return false;
       }
       // Date range filter
       if (filters.dateField && (filters.dateFrom || filters.dateTo)) {
@@ -1081,6 +1177,16 @@ function AppInner() {
     });
   }
 
+  // ── Compute filter result count for the filter bar summary ─────────────────
+  const filterResultCount: number | null = (() => {
+    if (!isFilterActive(filters)) return null;
+    const baseCards = filters.showArchived
+      ? [...cards.filter((c) => !c.isArchived), ...archivedCards]
+      : cards;
+    return applyFilters(baseCards).length;
+  })();
+  const totalCardCount = cards.filter((c) => !c.isArchived).length;
+
   // ── Compute cards per column ────────────────────────────────────────────────
   function getCardsForColumn(column: ColumnView): Card[] {
     const cardMap = new Map(cards.map((c) => [c.id.toString(), c]));
@@ -1103,6 +1209,35 @@ function AppInner() {
   );
   // Track whether a backend call is in progress so we don't double-fire
   const dndPendingRef = useRef(false);
+
+  // ── Horizontal scroll on board background ───────────────────────────────────
+  const boardScrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = boardScrollRef.current;
+    if (!el) return;
+
+    function handleWheel(e: WheelEvent) {
+      if (!el) return;
+      const target = e.target as HTMLElement;
+
+      // Don't intercept if inside a Radix scroll area (card modal, etc.)
+      if (target.closest("[data-radix-scroll-area-viewport]")) return;
+
+      // Don't intercept vertical scroll within a column's card list
+      const columnScrollBody = target.closest(".overflow-y-auto");
+      if (columnScrollBody && columnScrollBody !== el) return;
+
+      // Always intercept: scroll horizontally on shift+wheel, or when board overflows
+      if (e.shiftKey || el.scrollWidth > el.clientWidth) {
+        e.preventDefault();
+        el.scrollLeft += e.deltaY * 1.2;
+      }
+    }
+
+    el.addEventListener("wheel", handleWheel, { passive: false });
+    return () => el.removeEventListener("wheel", handleWheel);
+  }, []);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -1928,6 +2063,8 @@ function AppInner() {
                 onSavePreset={handleSavePreset}
                 onDeletePreset={handleDeletePreset}
                 onApplyPreset={handleApplyPreset}
+                filteredCount={filterResultCount}
+                totalCount={totalCardCount}
               />
             )}
 
@@ -1966,7 +2103,10 @@ function AppInner() {
                   items={columnSortableIds}
                   strategy={horizontalListSortingStrategy}
                 >
-                  <div className="flex gap-5 p-6 overflow-x-auto kanban-board flex-1 items-start">
+                  <div
+                    ref={boardScrollRef}
+                    className="flex gap-5 p-6 overflow-x-scroll kanban-board flex-1 items-start"
+                  >
                     {/* Columns */}
                     {effectiveColumns.map((column, idx) => (
                       <KanbanColumn
@@ -1983,6 +2123,7 @@ function AppInner() {
                         onMoveCard={handleMoveCard}
                         onRenameColumn={handleRenameColumn}
                         onDeleteColumn={handleDeleteColumn}
+                        onSetColumnComplete={handleSetColumnComplete}
                         onAssignCard={handleAssignCard}
                         onUpdateCardTags={handleUpdateCardTags}
                         onUpdateCardDueDate={handleUpdateCardDueDate}
@@ -2128,6 +2269,7 @@ function AppInner() {
           <DashboardTab
             projectId={activeProjectId}
             projectTags={projectTags}
+            columns={columns}
             onApplyFilter={(partial) => {
               setFilters((prev) => ({ ...prev, ...partial }));
               setActiveTab("board");

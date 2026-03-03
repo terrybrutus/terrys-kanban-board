@@ -223,7 +223,7 @@ function KanbanCardInner({
   const [isSaving, setIsSaving] = useState(false);
   const [commentText, setCommentText] = useState("");
   const [showHistory, setShowHistory] = useState(false);
-  const [showChecklist, setShowChecklist] = useState(false);
+  const [showChecklist, setShowChecklist] = useState(true);
   const [newChecklistItem, setNewChecklistItem] = useState("");
   const [isAddingChecklistItem, setIsAddingChecklistItem] = useState(false);
 
@@ -448,13 +448,36 @@ function KanbanCardInner({
       <div
         ref={setNodeRef}
         style={style}
-        className={`kanban-card group relative rounded-lg bg-card border-l-4 ${accentClass} p-3 shadow-card ${
+        className={`kanban-card group relative rounded-lg bg-card border-2 border-black/60 dark:border-white/20 border-l-4 ${accentClass} p-3 shadow-card ${
           isMoving || isDeleting ? "opacity-60 pointer-events-none" : ""
         } ${isDragging && !isOverlay ? "opacity-40 scale-95" : ""} ${
           isOverlay
             ? "shadow-card-hover rotate-1 scale-105 cursor-grabbing"
-            : ""
+            : "cursor-pointer"
         } ${isSelected ? "ring-2 ring-primary ring-offset-1" : ""}`}
+        onClick={(e) => {
+          if (isOverlay) return;
+          if (isSelectionMode) {
+            onToggleSelect?.(e);
+          } else {
+            openModal();
+          }
+        }}
+        onKeyDown={(e) => {
+          if (isOverlay) return;
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            if (isSelectionMode) {
+              onToggleSelect?.(e as unknown as React.MouseEvent);
+            } else {
+              openModal();
+            }
+          }
+        }}
+        // biome-ignore lint/a11y/useSemanticElements: DnD sortable requires a div; keyboard nav handled via onKeyDown
+        role="button"
+        tabIndex={isOverlay ? -1 : 0}
+        aria-label={`Open card: ${card.title}`}
       >
         {/* Multi-select checkbox — always faintly visible so users can discover it;
             becomes prominent when selected or in selection mode */}
@@ -502,37 +525,22 @@ function KanbanCardInner({
             isSelectionMode ? "hidden" : ""
           }`}
           title="Drag card"
+          onClick={(e) => e.stopPropagation()}
         >
           <GripVertical className="h-3.5 w-3.5" />
         </div>
 
-        {/* Card content — click to open modal */}
-        <button
-          type="button"
-          className={`w-full text-left focus:outline-none ${isSelectionMode ? "pl-6" : "pl-4"}`}
-          onClick={(e) => {
-            if (isSelectionMode) {
-              onToggleSelect?.(e);
-            } else {
-              openModal();
-            }
-          }}
-          aria-label={`Edit card: ${card.title}`}
-        >
-          {/* Right padding accounts for: up to 4 action buttons × 24px + gaps ≈ 100px */}
-          <p
-            className={`text-sm font-medium text-card-foreground leading-snug ${isSelectionMode ? "" : "group-hover:pr-[100px] transition-all duration-150"}`}
-          >
+        {/* Card content — fixed right padding so action buttons don't overlap */}
+        <div className={`${isSelectionMode ? "pl-6" : "pl-4"} pr-20`}>
+          <p className="text-sm font-medium text-card-foreground leading-snug">
             {card.title}
           </p>
           {card.description && (
-            <p
-              className={`text-xs text-muted-foreground mt-1.5 leading-relaxed line-clamp-2 ${isSelectionMode ? "" : "group-hover:pr-[100px] transition-all duration-150"}`}
-            >
+            <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed line-clamp-2">
               {card.description}
             </p>
           )}
-        </button>
+        </div>
 
         {/* Tag chips */}
         {resolvedTags.length > 0 && (
@@ -582,17 +590,29 @@ function KanbanCardInner({
           </div>
         )}
 
-        {/* Checklist progress chip */}
+        {/* Checklist progress bar — shown only when checklist items exist */}
         {checklistTotal > 0 && !isOverlay && (
           <div
-            className={`mt-1.5 flex items-center gap-1 ${isSelectionMode ? "pl-6" : "pl-4"}`}
+            className={`mt-2 space-y-0.5 ${isSelectionMode ? "pl-6" : "pl-4"} pr-1`}
           >
-            <ListChecks className="h-3 w-3 text-muted-foreground shrink-0" />
-            <span
-              className={`text-[10px] font-medium ${checklistDone === checklistTotal ? "text-emerald-600" : "text-muted-foreground"}`}
-            >
-              {checklistDone}/{checklistTotal}
-            </span>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1">
+                <ListChecks className="h-3 w-3 text-muted-foreground shrink-0" />
+                <span
+                  className={`text-[10px] font-medium ${checklistDone === checklistTotal ? "text-emerald-600" : "text-muted-foreground"}`}
+                >
+                  {checklistDone}/{checklistTotal}
+                </span>
+              </div>
+            </div>
+            <div className="h-1 w-full bg-secondary/70 rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all duration-300 ${checklistDone === checklistTotal ? "bg-emerald-500" : "bg-primary/50"}`}
+                style={{
+                  width: `${checklistTotal > 0 ? (checklistDone / checklistTotal) * 100 : 0}%`,
+                }}
+              />
+            </div>
           </div>
         )}
 
@@ -656,7 +676,10 @@ function KanbanCardInner({
               <button
                 type="button"
                 className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
-                onClick={onMoveLeft}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onMoveLeft();
+                }}
                 title="Move left"
                 aria-label="Move card left"
               >
@@ -667,7 +690,10 @@ function KanbanCardInner({
               <button
                 type="button"
                 className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
-                onClick={onMoveRight}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onMoveRight();
+                }}
                 title="Move right"
                 aria-label="Move card right"
               >
@@ -689,7 +715,10 @@ function KanbanCardInner({
             <button
               type="button"
               className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground transition-colors"
-              onClick={openModal}
+              onClick={(e) => {
+                e.stopPropagation();
+                openModal();
+              }}
               title="Edit card"
               aria-label="Edit card"
             >
@@ -756,22 +785,11 @@ function KanbanCardInner({
       {/* Card Detail Modal */}
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
         <DialogContent className="max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col gap-0 p-0">
+          {/* Modal header with title + tags */}
           <DialogHeader className="px-6 pt-5 pb-4 border-b border-border shrink-0">
-            <DialogTitle className="text-base font-display font-semibold text-foreground">
-              Card Details
-            </DialogTitle>
-          </DialogHeader>
-
-          <ScrollArea className="flex-1 overflow-y-auto">
-            <div className="px-6 py-4 space-y-5">
-              {/* Title */}
-              <div className="space-y-1.5">
-                <label
-                  htmlFor={`card-title-${card.id}`}
-                  className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide"
-                >
-                  Title
-                </label>
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex-1 min-w-0 space-y-2">
+                <DialogTitle className="sr-only">Card Details</DialogTitle>
                 <Input
                   id={`card-title-${card.id}`}
                   value={editTitle}
@@ -781,11 +799,54 @@ function KanbanCardInner({
                     if (e.key === "Escape") setModalOpen(false);
                   }}
                   placeholder="Card title"
-                  className="text-sm"
+                  className="text-base font-semibold border-0 border-b border-border/40 rounded-none px-0 focus-visible:ring-0 focus-visible:border-primary bg-transparent h-auto py-1"
                   autoFocus
                 />
+                {/* Tags row in header */}
+                {availableTags.length > 0 && onUpdateTags && (
+                  <div className="flex flex-wrap gap-1">
+                    {availableTags.map((tag) => {
+                      const isTagSelected = (card.tags ?? []).some(
+                        (t) => t.toString() === tag.id.toString(),
+                      );
+                      return (
+                        <button
+                          key={tag.id.toString()}
+                          type="button"
+                          onClick={() => handleTagToggle(tag.id)}
+                          disabled={isUpdatingTags}
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium transition-all border ${
+                            isTagSelected
+                              ? "opacity-100 ring-1 ring-offset-1 ring-current"
+                              : "opacity-30 hover:opacity-60"
+                          }`}
+                          style={{
+                            backgroundColor: `${tag.color}22`,
+                            color: tag.color,
+                            borderColor: `${tag.color}44`,
+                          }}
+                          title={
+                            isTagSelected
+                              ? `Remove tag: ${tag.name}`
+                              : `Add tag: ${tag.name}`
+                          }
+                        >
+                          <span
+                            className="h-1.5 w-1.5 rounded-full shrink-0"
+                            style={{ backgroundColor: tag.color }}
+                          />
+                          {tag.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
+            </div>
+          </DialogHeader>
 
+          <ScrollArea className="flex-1 overflow-y-auto">
+            <div className="px-6 py-4 space-y-5">
               {/* Description */}
               <div className="space-y-1.5">
                 <label
@@ -807,152 +868,119 @@ function KanbanCardInner({
                 />
               </div>
 
-              {/* Assign to */}
-              {users.length > 0 && onAssign && (
-                <div className="space-y-1.5">
-                  <label
-                    htmlFor={`card-assign-${card.id}`}
-                    className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide"
-                  >
-                    Assign To
-                  </label>
-                  <select
-                    id={`card-assign-${card.id}`}
-                    className="w-full h-9 text-sm rounded-md border border-input bg-background px-3 text-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
-                    value={
-                      card.assignedUserId != null
-                        ? card.assignedUserId.toString()
-                        : "unassigned"
-                    }
-                    onChange={(e) => handleAssignChange(e.target.value)}
-                    disabled={isAssigning}
-                  >
-                    <option value="unassigned">Unassigned</option>
-                    {users.map((u) => (
-                      <option key={u.id.toString()} value={u.id.toString()}>
-                        {u.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
+              {/* Two-column metadata row: Assignee + Due Date */}
+              <div className="grid grid-cols-2 gap-4">
+                {users.length > 0 && onAssign && (
+                  <div className="space-y-1.5">
+                    <label
+                      htmlFor={`card-assign-${card.id}`}
+                      className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide"
+                    >
+                      Assign To
+                    </label>
+                    <select
+                      id={`card-assign-${card.id}`}
+                      className="w-full h-9 text-sm rounded-md border border-input bg-background px-3 text-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
+                      value={
+                        card.assignedUserId != null
+                          ? card.assignedUserId.toString()
+                          : "unassigned"
+                      }
+                      onChange={(e) => handleAssignChange(e.target.value)}
+                      disabled={isAssigning}
+                    >
+                      <option value="unassigned">Unassigned</option>
+                      {users.map((u) => (
+                        <option key={u.id.toString()} value={u.id.toString()}>
+                          {u.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
 
-              {/* Tags */}
-              {availableTags.length > 0 && onUpdateTags && (
-                <div className="space-y-1.5">
-                  <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
-                    Tags
-                  </p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {availableTags.map((tag) => {
-                      const isSelected = (card.tags ?? []).some(
-                        (t) => t.toString() === tag.id.toString(),
-                      );
-                      return (
+                {onUpdateDueDate && (
+                  <div className="space-y-1.5">
+                    <label
+                      htmlFor={`card-duedate-${card.id}`}
+                      className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide"
+                    >
+                      Due Date
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        id={`card-duedate-${card.id}`}
+                        type="date"
+                        className="flex-1 h-9 text-sm rounded-md border border-input bg-background px-3 text-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
+                        value={editDueDate}
+                        onChange={(e) => setEditDueDate(e.target.value)}
+                        onBlur={(e) => handleDueDateChange(e.target.value)}
+                        disabled={isUpdatingDueDate}
+                      />
+                      {editDueDate && (
                         <button
-                          key={tag.id.toString()}
                           type="button"
-                          onClick={() => handleTagToggle(tag.id)}
-                          disabled={isUpdatingTags}
-                          className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium transition-all border ${
-                            isSelected
-                              ? "opacity-100 ring-1 ring-offset-1 ring-current"
-                              : "opacity-50 hover:opacity-80"
-                          }`}
-                          style={{
-                            backgroundColor: `${tag.color}22`,
-                            color: tag.color,
-                            borderColor: `${tag.color}44`,
+                          className="text-xs text-muted-foreground hover:text-destructive transition-colors shrink-0"
+                          onClick={() => {
+                            setEditDueDate("");
+                            handleDueDateChange("");
                           }}
                         >
-                          <span
-                            className="h-2 w-2 rounded-full shrink-0"
-                            style={{ backgroundColor: tag.color }}
-                          />
-                          {tag.name}
+                          Clear
                         </button>
-                      );
-                    })}
+                      )}
+                    </div>
                   </div>
-                </div>
-              )}
-
-              {/* Due date */}
-              {onUpdateDueDate && (
-                <div className="space-y-1.5">
-                  <label
-                    htmlFor={`card-duedate-${card.id}`}
-                    className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide"
-                  >
-                    Due Date
-                  </label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      id={`card-duedate-${card.id}`}
-                      type="date"
-                      className="h-9 text-sm rounded-md border border-input bg-background px-3 text-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
-                      value={editDueDate}
-                      onChange={(e) => setEditDueDate(e.target.value)}
-                      onBlur={(e) => handleDueDateChange(e.target.value)}
-                      disabled={isUpdatingDueDate}
-                    />
-                    {editDueDate && (
-                      <button
-                        type="button"
-                        className="text-xs text-muted-foreground hover:text-destructive transition-colors"
-                        onClick={() => {
-                          setEditDueDate("");
-                          handleDueDateChange("");
-                        }}
-                      >
-                        Clear
-                      </button>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* Created date (read-only) */}
-              <div className="space-y-1.5">
-                <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-1">
-                  <Calendar className="h-3 w-3" />
-                  Created
-                </p>
-                <p className="text-sm text-foreground/80">
-                  {formatCreatedDateTime(card.createdAt)}
-                </p>
+                )}
               </div>
 
-              {/* Swimlane selector */}
-              {swimlanesEnabled && swimlanes.length > 0 && onUpdateSwimlane && (
+              {/* Created date + Swimlane row */}
+              <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <label
-                    htmlFor={`card-swimlane-${card.id}`}
-                    className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-1"
-                  >
-                    <Layers className="h-3 w-3" />
-                    Swimlane
-                  </label>
-                  <select
-                    id={`card-swimlane-${card.id}`}
-                    className="w-full h-9 text-sm rounded-md border border-input bg-background px-3 text-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
-                    value={
-                      card.swimlaneId != null
-                        ? card.swimlaneId.toString()
-                        : "none"
-                    }
-                    onChange={(e) => handleSwimlaneChange(e.target.value)}
-                    disabled={isUpdatingSwimlane}
-                  >
-                    <option value="none">Default (no swimlane)</option>
-                    {swimlanes.map((sl) => (
-                      <option key={sl.id.toString()} value={sl.id.toString()}>
-                        {sl.name}
-                      </option>
-                    ))}
-                  </select>
+                  <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-1">
+                    <Calendar className="h-3 w-3" />
+                    Created
+                  </p>
+                  <p className="text-sm text-foreground/80">
+                    {formatCreatedDateTime(card.createdAt)}
+                  </p>
                 </div>
-              )}
+
+                {swimlanesEnabled &&
+                  swimlanes.length > 0 &&
+                  onUpdateSwimlane && (
+                    <div className="space-y-1.5">
+                      <label
+                        htmlFor={`card-swimlane-${card.id}`}
+                        className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-1"
+                      >
+                        <Layers className="h-3 w-3" />
+                        Swimlane
+                      </label>
+                      <select
+                        id={`card-swimlane-${card.id}`}
+                        className="w-full h-9 text-sm rounded-md border border-input bg-background px-3 text-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
+                        value={
+                          card.swimlaneId != null
+                            ? card.swimlaneId.toString()
+                            : "none"
+                        }
+                        onChange={(e) => handleSwimlaneChange(e.target.value)}
+                        disabled={isUpdatingSwimlane}
+                      >
+                        <option value="none">Default (no swimlane)</option>
+                        {swimlanes.map((sl) => (
+                          <option
+                            key={sl.id.toString()}
+                            value={sl.id.toString()}
+                          >
+                            {sl.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+              </div>
 
               {/* Save/Cancel + Archive */}
               <div className="flex gap-2 pt-1 flex-wrap">

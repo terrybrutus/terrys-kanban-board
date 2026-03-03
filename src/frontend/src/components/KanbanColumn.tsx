@@ -39,6 +39,7 @@ import {
   ArrowRight,
   Calendar,
   Check,
+  CheckCircle2,
   GripVertical,
   HelpCircle,
   Loader2,
@@ -137,7 +138,10 @@ interface KanbanColumnProps {
     newPosition: bigint,
   ) => Promise<void>;
   onRenameColumn: (columnId: bigint, newName: string) => Promise<void>;
-  onDeleteColumn: (columnId: bigint) => Promise<void>;
+  onDeleteColumn: (
+    columnId: bigint,
+    destinationColumnId?: bigint,
+  ) => Promise<void>;
   onAssignCard: (cardId: bigint, userId: bigint | null) => Promise<void>;
   onUpdateCardTags: (cardId: bigint, tagIds: bigint[]) => Promise<void>;
   onUpdateCardDueDate: (
@@ -152,6 +156,10 @@ interface KanbanColumnProps {
   ) => Promise<void>;
   onMoveCards?: (cardIds: bigint[], targetColumnId: bigint) => Promise<void>;
   onBulkImport?: () => void;
+  onSetColumnComplete?: (
+    columnId: bigint,
+    isComplete: boolean,
+  ) => Promise<void>;
   onQuickAdd?: (
     columnId: bigint,
     title: string,
@@ -191,6 +199,7 @@ function KanbanColumnInner({
   onUpdateCardSwimlane,
   onMoveCards,
   onBulkImport,
+  onSetColumnComplete,
   onQuickAdd,
   projectTags,
   siblingColumns,
@@ -360,16 +369,15 @@ function KanbanColumnInner({
   async function confirmDeleteColumn() {
     setIsDeletingColumn(true);
     try {
-      // If there are cards and sibling columns exist, move cards first
-      if (cards.length > 0 && targetColumns.length > 0) {
-        if (deleteDestinationColumnId === "none") return; // button should be disabled
-        const destId = BigInt(deleteDestinationColumnId);
-        if (onMoveCards) {
-          const cardIds = cards.map((c) => c.id);
-          await onMoveCards(cardIds, destId);
-        }
-      }
-      await onDeleteColumn(column.id);
+      // Pass destination column ID to parent — parent handles card migration + deletion atomically
+      const destId =
+        cards.length > 0 &&
+        targetColumns.length > 0 &&
+        deleteDestinationColumnId !== "none"
+          ? BigInt(deleteDestinationColumnId)
+          : undefined;
+
+      await onDeleteColumn(column.id, destId);
       setShowDeleteColumnDialog(false);
     } catch {
       toast.error("Failed to delete column");
@@ -833,6 +841,12 @@ function KanbanColumnInner({
               >
                 {cards.length}
               </Badge>
+              {column.isComplete && (
+                <span className="text-[9px] font-semibold text-emerald-600 bg-emerald-500/10 border border-emerald-500/20 rounded-full px-1.5 py-0.5 flex items-center gap-0.5 shrink-0">
+                  <CheckCircle2 className="h-2.5 w-2.5" />
+                  Done
+                </span>
+              )}
               {/* Quick Add button */}
               <button
                 type="button"
@@ -857,6 +871,23 @@ function KanbanColumnInner({
                   <DropdownMenuItem onClick={startRename}>
                     Rename column
                   </DropdownMenuItem>
+                  {onSetColumnComplete && (
+                    <DropdownMenuItem
+                      onClick={() =>
+                        onSetColumnComplete(column.id, !column.isComplete)
+                      }
+                      className={
+                        column.isComplete
+                          ? "text-muted-foreground"
+                          : "text-emerald-600 focus:text-emerald-600"
+                      }
+                    >
+                      <CheckCircle2 className="h-3.5 w-3.5 mr-2" />
+                      {column.isComplete
+                        ? "Unmark as complete"
+                        : "Mark as complete"}
+                    </DropdownMenuItem>
+                  )}
                   <DropdownMenuItem onClick={onBulkImport}>
                     <Upload className="h-3.5 w-3.5 mr-2" />
                     Bulk import cards

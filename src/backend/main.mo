@@ -8,7 +8,10 @@ import Time "mo:core/Time";
 import Order "mo:core/Order";
 import Runtime "mo:core/Runtime";
 import Iter "mo:core/Iter";
+import Migration "migration";
 
+// Use migration module for seamless upgrade
+(with migration = Migration.run)
 actor {
   ///////////////////////////
   // Types
@@ -25,6 +28,7 @@ actor {
     name : Text;
     projectId : Nat;
     cardIds : List.List<Nat>;
+    isComplete : Bool;
   };
   module Column {
     public func compare(c1 : Column, c2 : Column) : Order.Order {
@@ -236,6 +240,7 @@ actor {
       name;
       projectId;
       cardIds = List.empty<Nat>();
+      isComplete = false;
     };
     columns.add(nextColumnId, column);
     nextColumnId += 1;
@@ -585,6 +590,7 @@ actor {
     name : Text;
     projectId : Nat;
     cardIds : [Nat];
+    isComplete : Bool;
   };
   module ColumnView {
     public func fromColumn(column : Column) : ColumnView {
@@ -593,6 +599,7 @@ actor {
         name = column.name;
         projectId = column.projectId;
         cardIds = column.cardIds.toArray();
+        isComplete = column.isComplete;
       };
     };
 
@@ -612,6 +619,7 @@ actor {
       name;
       projectId;
       cardIds = List.empty<Nat>();
+      isComplete = false;
     };
     columns.add(columnId, column);
     nextColumnId += 1;
@@ -645,6 +653,30 @@ actor {
         );
       };
     };
+  };
+
+  public shared ({ caller }) func setColumnComplete(
+    columnId : Nat,
+    isComplete : Bool,
+    actorUserId : Nat,
+  ) : async () {
+    let column = switch (columns.get(columnId)) {
+      case (null) { Runtime.trap("Column not found") };
+      case (?c) { c };
+    };
+
+    if (not isAdmin(actorUserId)) {
+      Runtime.trap("Not an admin");
+    };
+
+    let newDescription = if (isComplete) {
+      "Column '" # column.name # "' marked as complete by " # getUserName(actorUserId);
+    } else {
+      "Column '" # column.name # "' marked as incomplete by " # getUserName(actorUserId);
+    };
+
+    columns.add(columnId, { column with isComplete });
+    logRevision(column.projectId, actorUserId, "set_column_complete", newDescription, null);
   };
 
   public shared ({ caller }) func deleteColumn(

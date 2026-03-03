@@ -18,6 +18,7 @@ export interface ColumnView {
     name: string;
     projectId: bigint;
     cardIds: Array<bigint>;
+    isComplete: boolean;
 }
 export interface Tag {
     id: bigint;
@@ -156,6 +157,7 @@ export interface backendInterface {
     restoreCard(cardId: bigint, actorUserId: bigint): Promise<void>;
     saveFilterPreset(projectId: bigint, createdByUserId: bigint, name: string, assigneeId: bigint | null, tagIds: Array<bigint>, unassignedOnly: boolean, textSearch: string, dateField: string | null, dateFrom: string, dateTo: string): Promise<bigint>;
     setAccessKey(newKey: string, actorUserId: bigint): Promise<void>;
+    setColumnComplete(columnId: bigint, isComplete: boolean, actorUserId: bigint): Promise<void>;
     setMasterAdminSecurityQuestion(question: string, answerHash: string, actorUserId: bigint): Promise<void>;
     setupMasterAdmin(name: string, pinHash: string): Promise<bigint>;
     updateCard(cardId: bigint, title: string, description: string | null, actorUserId: bigint): Promise<void>;

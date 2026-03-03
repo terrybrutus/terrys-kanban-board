@@ -550,34 +550,165 @@ const ACCENT_CLASSES = [
   "col-accent-5",
 ];
 
-// ── Tutorial Steps ────────────────────────────────────────────────────────────
+// ── Tutorial Steps (Spotlight) ────────────────────────────────────────────────
 
-const TUTORIAL_STEPS = [
+interface TutorialStep {
+  title: string;
+  body: string;
+  /** data-tutorial attribute of the element to spotlight. null = no spotlight (general) */
+  target: string | null;
+  /** Where to position the tooltip relative to the target */
+  placement?: "top" | "bottom" | "left" | "right" | "center";
+}
+
+const TUTORIAL_STEPS: TutorialStep[] = [
   {
-    title: "The Board",
-    body: "Each column represents a stage in the workflow. Cards move left to right as work progresses. This board uses Toyota-inspired Kanban principles — a pull system where work advances only when the next stage is ready.",
+    title: "Welcome to the Board",
+    body: "This is a fully interactive Kanban board. Each column represents a stage in the Toyota production workflow. Cards flow left to right as work progresses — only pulled forward when the next stage is ready.",
+    target: "tutorial-board",
+    placement: "center",
   },
   {
-    title: "Moving Cards",
-    body: "Drag any card to a different column to advance it through the workflow. Try dragging one now — your changes are fully functional and reflect a real production pull system.",
+    title: "Board Columns",
+    body: "Each column is a workflow stage. The number badge shows how many cards are currently in that stage. Drag the grip handle (⠿) at the top of any column to reorder stages.",
+    target: "tutorial-column-0",
+    placement: "bottom",
+  },
+  {
+    title: "Cards",
+    body: "Each card is a work item. Cards show the title, tags, due date, assignee, and a checklist progress bar when items exist. Click anywhere on a card to open its full detail view.",
+    target: "tutorial-card-0",
+    placement: "right",
+  },
+  {
+    title: "Drag & Drop",
+    body: "Drag any card to a different column to advance it through the workflow. You can also use the ← → arrows that appear on hover to move cards one stage at a time.",
+    target: "tutorial-card-0",
+    placement: "right",
   },
   {
     title: "Card Details",
-    body: "Click any card to open its detail view. You can edit the title and description, assign a team member, set a due date, manage a checklist with progress tracking, and add comments attributed to any user.",
+    body: "Click a card to open this modal. Edit the title, description, assignee, due date, and tags inline. The checklist section lets you track sub-tasks with a live progress bar. Comments are attributed to the active user.",
+    target: "tutorial-column-0",
+    placement: "right",
   },
   {
-    title: "Creating Cards",
-    body: "Click the + button at the bottom of any column to add a new card. Use Quick Add (⚡) for speed — type #TagName and @UserName shortcuts to set tags and assignees inline.",
+    title: "Quick Add (⚡)",
+    body: 'Click the ⚡ icon at the bottom of any column for Quick Add mode. Type shortcuts inline: #TagName to assign a tag, @UserName to assign a person, due:YYYY-MM-DD to set a due date. Use @"Terry Brutus" for names with spaces.',
+    target: "tutorial-quickadd-0",
+    placement: "top",
   },
   {
-    title: "Filtering & Multi-select",
-    body: "Use the filter bar to narrow cards by assignee, tag, or keyword. Hold Shift and click cards to multi-select, then bulk-move them at once using the toolbar that appears.",
+    title: "Add a Card",
+    body: "Click the + button at the bottom of any column to open a full card creation form with all fields available.",
+    target: "tutorial-addcard-0",
+    placement: "top",
+  },
+  {
+    title: "Horizontal Board Scroll",
+    body: "When your board has many columns, hold Shift and scroll your mouse wheel up or down to navigate left and right across the board. On trackpads, a horizontal two-finger swipe also works natively.",
+    target: "tutorial-board",
+    placement: "center",
+  },
+  {
+    title: "Filter Bar",
+    body: "Use the filter bar to instantly narrow down cards. Filter by assignee, tag, date range, or keyword. Active filters are shown as chips — click the × to remove them.",
+    target: "tutorial-filterbar",
+    placement: "bottom",
+  },
+  {
+    title: "Multi-select",
+    body: "Click the faint checkbox on the top-left of any card to enter selection mode. Shift+click for range select, Ctrl+click to toggle individual cards. A bulk action toolbar appears to move, tag, assign, or archive multiple cards at once.",
+    target: "tutorial-card-0",
+    placement: "right",
+  },
+  {
+    title: "Saved Filter Presets",
+    body: "Built a useful filter combination? Save it as a preset using the bookmark icon in the filter bar. Presets are saved per project and can be applied with a single click.",
+    target: "tutorial-filterbar",
+    placement: "bottom",
+  },
+  {
+    title: "Undo / Redo",
+    body: "Every action — moving cards, renaming columns, archiving — is tracked in the undo stack. Use Ctrl+Z / Cmd+Z to undo and Ctrl+Shift+Z / Cmd+Shift+Z to redo. The buttons are also in the header.",
+    target: "tutorial-undo",
+    placement: "bottom",
+  },
+  {
+    title: "Users Tab",
+    body: "The Users tab shows all team members and their roles. Switch active users here using a PIN. Admins can create tags, manage users, and configure the board.",
+    target: "tutorial-tab-users",
+    placement: "bottom",
+  },
+  {
+    title: "Activity Log",
+    body: "Every action on the board is logged in the Activity tab with a timestamp and the user who performed it — perfect for accountability and auditing workflow changes.",
+    target: "tutorial-tab-activity",
+    placement: "bottom",
+  },
+  {
+    title: "Dashboard",
+    body: "The Dashboard tab shows board health at a glance: cards per column, progress by assignee, tag usage, overdue cards, and completion rate — all computed live from the board data.",
+    target: "tutorial-tab-dashboard",
+    placement: "bottom",
   },
   {
     title: "Explore Freely",
-    body: "That's it! All features are live — try the Activity log, Dashboard tab, and Users tab. Columns can be renamed, reordered by dragging the grip handle, and deleted. Everything resets when you leave.",
+    body: "That's everything! All features are fully functional — nothing is saved when you leave. Try creating cards, renaming columns, dragging items, or checking the Dashboard. This Tutorial button is always available to restart the walkthrough.",
+    target: "tutorial-tutorial-btn",
+    placement: "bottom",
   },
 ];
+
+// ── Tutorial Callout Line ─────────────────────────────────────────────────────
+
+function TutorialCalloutLine({
+  fromX,
+  fromY,
+  toX,
+  toY,
+}: {
+  fromX: number;
+  fromY: number;
+  toX: number;
+  toY: number;
+}) {
+  return (
+    <svg
+      className="fixed inset-0 pointer-events-none"
+      style={{ zIndex: 9998, width: "100vw", height: "100vh" }}
+      aria-hidden="true"
+      role="presentation"
+    >
+      <line
+        x1={fromX}
+        y1={fromY}
+        x2={toX}
+        y2={toY}
+        stroke="white"
+        strokeWidth="2"
+        strokeDasharray="4 3"
+        opacity="0.8"
+      />
+      <circle
+        cx={toX}
+        cy={toY}
+        r="6"
+        fill="hsl(var(--primary))"
+        opacity="0.9"
+      />
+      <circle
+        cx={toX}
+        cy={toY}
+        r="12"
+        fill="none"
+        stroke="hsl(var(--primary))"
+        strokeWidth="2"
+        opacity="0.5"
+      />
+    </svg>
+  );
+}
 
 // ── Tutorial Overlay ──────────────────────────────────────────────────────────
 
@@ -589,6 +720,125 @@ function TutorialOverlay({
   forceOpen?: boolean;
 }) {
   const [step, setStep] = useState<null | number>(null); // null = intro screen
+  const tooltipRef = useRef<HTMLDialogElement>(null);
+  const [tooltipPos, setTooltipPos] = useState<{
+    top: number;
+    left: number;
+    arrowSide: string;
+  } | null>(null);
+  const [targetCenter, setTargetCenter] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
+  const [targetRect, setTargetRect] = useState<DOMRect | null>(null);
+
+  const currentStep = step !== null ? TUTORIAL_STEPS[step] : null;
+
+  // Position tooltip relative to target element
+  useEffect(() => {
+    if (step === null || !currentStep?.target) {
+      setTooltipPos(null);
+      setTargetCenter(null);
+      setTargetRect(null);
+      return;
+    }
+
+    function updatePosition() {
+      const targetEl = document.querySelector(
+        `[data-tutorial="${currentStep!.target}"]`,
+      );
+      if (!targetEl) {
+        setTooltipPos(null);
+        setTargetCenter(null);
+        setTargetRect(null);
+        return;
+      }
+
+      const rect = targetEl.getBoundingClientRect();
+      setTargetRect(rect);
+      setTargetCenter({
+        x: rect.left + rect.width / 2,
+        y: rect.top + rect.height / 2,
+      });
+
+      const tooltipWidth = 320;
+      const tooltipHeight = 200; // estimated
+      const padding = 16;
+      const arrowSize = 10;
+
+      const placement = currentStep!.placement ?? "bottom";
+      let top = 0;
+      let left = 0;
+      let arrowSide = "top";
+
+      if (placement === "bottom") {
+        top = rect.bottom + arrowSize + padding / 2;
+        left = Math.max(
+          padding,
+          Math.min(
+            rect.left + rect.width / 2 - tooltipWidth / 2,
+            window.innerWidth - tooltipWidth - padding,
+          ),
+        );
+        arrowSide = "top";
+      } else if (placement === "top") {
+        top = rect.top - tooltipHeight - arrowSize - padding / 2;
+        left = Math.max(
+          padding,
+          Math.min(
+            rect.left + rect.width / 2 - tooltipWidth / 2,
+            window.innerWidth - tooltipWidth - padding,
+          ),
+        );
+        arrowSide = "bottom";
+      } else if (placement === "right") {
+        top = Math.max(
+          padding,
+          Math.min(
+            rect.top + rect.height / 2 - tooltipHeight / 2,
+            window.innerHeight - tooltipHeight - padding,
+          ),
+        );
+        left = rect.right + arrowSize + padding / 2;
+        arrowSide = "left";
+      } else if (placement === "left") {
+        top = Math.max(
+          padding,
+          Math.min(
+            rect.top + rect.height / 2 - tooltipHeight / 2,
+            window.innerHeight - tooltipHeight - padding,
+          ),
+        );
+        left = rect.left - tooltipWidth - arrowSize - padding / 2;
+        arrowSide = "right";
+      } else {
+        // center — position in viewport center
+        top = window.innerHeight / 2 - tooltipHeight / 2;
+        left = window.innerWidth / 2 - tooltipWidth / 2;
+        arrowSide = "none";
+      }
+
+      // Clamp to viewport
+      top = Math.max(
+        padding,
+        Math.min(top, window.innerHeight - tooltipHeight - padding),
+      );
+      left = Math.max(
+        padding,
+        Math.min(left, window.innerWidth - tooltipWidth - padding),
+      );
+
+      setTooltipPos({ top, left, arrowSide });
+    }
+
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [step, currentStep]);
 
   function handleSkip() {
     if (!forceOpen) {
@@ -613,22 +863,39 @@ function TutorialOverlay({
     }
   }
 
-  const currentStep = step !== null ? TUTORIAL_STEPS[step] : null;
+  function handlePrev() {
+    if (step !== null && step > 0) {
+      setStep(step - 1);
+    }
+  }
 
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/30 backdrop-blur-sm"
-      role="presentation"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) handleSkip();
-      }}
-      onKeyDown={(e) => {
-        if (e.key === "Escape") handleSkip();
-      }}
-    >
-      <div className="w-full max-w-md mx-4 rounded-2xl border border-border bg-card shadow-2xl overflow-hidden">
-        {step === null ? (
-          // Intro screen
+  // Keyboard navigation
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") handleSkip();
+      if (e.key === "ArrowRight" || e.key === "Enter") {
+        if (step !== null) handleNext();
+      }
+      if (e.key === "ArrowLeft" && step !== null && step > 0) handlePrev();
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  });
+
+  // ── Intro screen ────────────────────────────────────────────────────────────
+  if (step === null) {
+    return (
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40 backdrop-blur-sm"
+        role="presentation"
+        onClick={(e) => {
+          if (e.target === e.currentTarget) handleSkip();
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") handleSkip();
+        }}
+      >
+        <div className="w-full max-w-md mx-4 rounded-2xl border border-border bg-card shadow-2xl overflow-hidden">
           <div className="px-8 py-8 text-center space-y-5">
             <div className="h-14 w-14 rounded-2xl col-accent-0 col-accent-bar flex items-center justify-center mx-auto">
               <BookOpen className="h-7 w-7 text-white" />
@@ -638,75 +905,194 @@ function TutorialOverlay({
                 Welcome to the Tutorial
               </h2>
               <p className="text-sm text-muted-foreground leading-relaxed">
-                This is a fully interactive Kanban board. Explore every feature
-                — nothing is saved.
+                This is a fully interactive Kanban board. The tutorial will walk
+                you through every feature by highlighting the actual UI elements
+                — {TUTORIAL_STEPS.length} steps total.
               </p>
             </div>
             <div className="flex flex-col gap-2 pt-1">
               <Button onClick={handleStart} className="w-full gap-2">
                 <BookOpen className="h-4 w-4" />
-                Start Tutorial
+                Start Tutorial ({TUTORIAL_STEPS.length} steps)
               </Button>
               <Button
                 variant="ghost"
                 onClick={handleSkip}
                 className="w-full text-muted-foreground"
               >
-                Skip
+                Skip — jump straight in
               </Button>
             </div>
           </div>
-        ) : (
-          // Step screen
-          <div className="px-7 py-7 space-y-5">
-            <div className="flex items-start justify-between gap-3">
-              <div className="space-y-1">
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                  Step {(step ?? 0) + 1} of {TUTORIAL_STEPS.length}
-                </p>
-                <h2 className="font-display font-bold text-lg text-foreground">
-                  {currentStep?.title}
-                </h2>
-              </div>
-              <button
-                type="button"
-                onClick={handleSkip}
-                className="h-7 w-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors shrink-0 mt-0.5"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            {/* Progress bar */}
-            <div className="h-1.5 w-full bg-secondary rounded-full overflow-hidden">
-              <div
-                className="h-full col-accent-0 col-accent-bar rounded-full transition-all duration-300"
-                style={{
-                  width: `${(((step ?? 0) + 1) / TUTORIAL_STEPS.length) * 100}%`,
-                }}
-              />
-            </div>
-
-            <p className="text-sm text-muted-foreground leading-relaxed">
-              {currentStep?.body}
-            </p>
-
-            <div className="flex items-center justify-between pt-1">
-              <button
-                type="button"
-                onClick={handleSkip}
-                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-              >
-                Skip tutorial
-              </button>
-              <Button onClick={handleNext} className="gap-1.5">
-                {(step ?? 0) < TUTORIAL_STEPS.length - 1 ? "Next" : "Finish"}
-              </Button>
-            </div>
-          </div>
-        )}
+        </div>
       </div>
-    </div>
+    );
+  }
+
+  // ── Callout step ────────────────────────────────────────────────────────────
+  const hasTarget = !!targetCenter && currentStep?.placement !== "center";
+
+  // Compute tooltip anchor point for the callout line
+  const tooltipAnchor = tooltipPos
+    ? {
+        x: tooltipPos.left + 160, // center of 320px tooltip
+        y:
+          tooltipPos.arrowSide === "top"
+            ? tooltipPos.top
+            : tooltipPos.arrowSide === "bottom"
+              ? tooltipPos.top + 200
+              : tooltipPos.arrowSide === "left"
+                ? tooltipPos.top + 100
+                : tooltipPos.top + 100,
+      }
+    : null;
+
+  return (
+    <>
+      {/* Full-screen semi-transparent dimming overlay */}
+      <div
+        className="fixed inset-0 z-40 pointer-events-none"
+        style={{ background: "rgba(0,0,0,0.45)" }}
+      />
+
+      {/* Target highlight ring */}
+      {hasTarget && targetRect && (
+        <div
+          className="fixed pointer-events-none"
+          style={{
+            zIndex: 9997,
+            top: targetRect.top - 4,
+            left: targetRect.left - 4,
+            width: targetRect.width + 8,
+            height: targetRect.height + 8,
+            outline: "2px solid hsl(var(--primary))",
+            outlineOffset: "0px",
+            borderRadius: "8px",
+            boxShadow: "0 0 0 4px hsl(var(--primary) / 0.2)",
+            transition: "all 300ms ease",
+          }}
+        />
+      )}
+
+      {/* Callout line from tooltip to target */}
+      {hasTarget && tooltipAnchor && targetCenter && (
+        <TutorialCalloutLine
+          fromX={tooltipAnchor.x}
+          fromY={tooltipAnchor.y}
+          toX={targetCenter.x}
+          toY={targetCenter.y}
+        />
+      )}
+
+      {/* Click-through backdrop for skipping via outside click */}
+      <div
+        className="fixed inset-0 z-40"
+        style={{ pointerEvents: "all" }}
+        onClick={handleSkip}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") handleSkip();
+        }}
+        role="presentation"
+      />
+
+      {/* Tooltip panel */}
+      <dialog
+        ref={tooltipRef}
+        open
+        className="fixed z-50 m-0 w-80 rounded-2xl border border-border bg-card shadow-2xl overflow-hidden p-0"
+        style={
+          tooltipPos
+            ? { top: tooltipPos.top, left: tooltipPos.left }
+            : {
+                top: "50%",
+                left: "50%",
+                transform: "translate(-50%, -50%)",
+              }
+        }
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => e.stopPropagation()}
+        aria-label="Tutorial step"
+      >
+        {/* Progress bar at top */}
+        <div className="h-1 w-full bg-secondary">
+          <div
+            className="h-full col-accent-0 col-accent-bar transition-all duration-300"
+            style={{ width: `${((step + 1) / TUTORIAL_STEPS.length) * 100}%` }}
+          />
+        </div>
+
+        <div className="px-5 py-4 space-y-3">
+          <div className="flex items-start justify-between gap-3">
+            <div className="space-y-0.5">
+              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                Step {step + 1} of {TUTORIAL_STEPS.length}
+              </p>
+              <h2 className="font-display font-bold text-base text-foreground leading-tight">
+                {currentStep?.title}
+              </h2>
+            </div>
+            <button
+              type="button"
+              onClick={handleSkip}
+              className="h-6 w-6 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors shrink-0"
+              title="Close tutorial"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            {currentStep?.body}
+          </p>
+
+          <div className="flex items-center justify-between pt-1 gap-2">
+            <button
+              type="button"
+              onClick={handleSkip}
+              className="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Exit tutorial
+            </button>
+            <div className="flex items-center gap-1.5">
+              {step > 0 && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={handlePrev}
+                  className="h-7 text-xs px-2.5"
+                >
+                  Back
+                </Button>
+              )}
+              <Button
+                size="sm"
+                onClick={handleNext}
+                className="h-7 text-xs px-3 gap-1"
+              >
+                {step < TUTORIAL_STEPS.length - 1 ? "Next →" : "Finish ✓"}
+              </Button>
+            </div>
+          </div>
+
+          {/* Step dots */}
+          <div className="flex items-center justify-center gap-1 pt-1">
+            {TUTORIAL_STEPS.map((tutStep, i) => (
+              <button
+                key={tutStep.title}
+                type="button"
+                onClick={() => setStep(i)}
+                className={`rounded-full transition-all ${
+                  i === step
+                    ? "w-4 h-1.5 col-accent-0 col-accent-bar"
+                    : "w-1.5 h-1.5 bg-secondary hover:bg-secondary/80"
+                }`}
+                title={`Go to step ${i + 1}: ${tutStep.title}`}
+              />
+            ))}
+          </div>
+        </div>
+      </dialog>
+    </>
   );
 }
 
@@ -1425,6 +1811,7 @@ function DroppableColumn({
   allColumns,
   isDraggingColumn,
   showArchived,
+  tutorialIdx,
 }: {
   column: TColumn;
   cards: TCard[];
@@ -1439,6 +1826,7 @@ function DroppableColumn({
   allColumns: TColumn[];
   isDraggingColumn: boolean;
   showArchived?: boolean;
+  tutorialIdx?: number;
 }) {
   const accentClass = ACCENT_CLASSES[colIdx % ACCENT_CLASSES.length];
   const columnSortableId = `col-header-${column.id}`;
@@ -1648,6 +2036,11 @@ function DroppableColumn({
           setColRef(node);
         }}
         style={{ animationDelay: `${colIdx * 60}ms`, ...colStyle }}
+        data-tutorial={
+          tutorialIdx !== undefined
+            ? `tutorial-column-${tutorialIdx}`
+            : undefined
+        }
         className={`column-enter flex flex-col w-72 shrink-0 rounded-xl bg-card shadow-column overflow-hidden ${accentClass} ${isColDragging ? "opacity-50 scale-95" : ""}`}
       >
         <div className="col-accent-bar h-1 w-full shrink-0" />
@@ -1713,6 +2106,11 @@ function DroppableColumn({
                 onClick={() => setShowQuickAdd((v) => !v)}
                 className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors shrink-0"
                 title="Quick add"
+                data-tutorial={
+                  tutorialIdx !== undefined
+                    ? `tutorial-quickadd-${tutorialIdx}`
+                    : undefined
+                }
               >
                 <Zap className="h-3.5 w-3.5" />
               </button>
@@ -1806,19 +2204,27 @@ function DroppableColumn({
             )}
             <div className="space-y-2">
               {visibleCards.map((card, idx) => (
-                <SortableCard
+                <div
                   key={card.id}
-                  card={card}
-                  accentClass={accentClass}
-                  users={users}
-                  tags={tags}
-                  onOpen={() => onCardOpen(card.id)}
-                  disableDrag={isDraggingColumn}
-                  isSelected={selectedIds.has(card.id)}
-                  isSelectionMode={isSelectionMode}
-                  onToggleSelect={(e) => handleToggleSelect(card.id, idx, e)}
-                  showArchived={showArchived}
-                />
+                  data-tutorial={
+                    tutorialIdx === 0 && idx === 0
+                      ? "tutorial-card-0"
+                      : undefined
+                  }
+                >
+                  <SortableCard
+                    card={card}
+                    accentClass={accentClass}
+                    users={users}
+                    tags={tags}
+                    onOpen={() => onCardOpen(card.id)}
+                    disableDrag={isDraggingColumn}
+                    isSelected={selectedIds.has(card.id)}
+                    isSelectionMode={isSelectionMode}
+                    onToggleSelect={(e) => handleToggleSelect(card.id, idx, e)}
+                    showArchived={showArchived}
+                  />
+                </div>
               ))}
             </div>
 
@@ -1925,6 +2331,11 @@ function DroppableColumn({
           <button
             type="button"
             onClick={() => setAddingCard(true)}
+            data-tutorial={
+              tutorialIdx !== undefined
+                ? `tutorial-addcard-${tutorialIdx}`
+                : undefined
+            }
             className="w-full flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-secondary/60 rounded-lg px-2 py-1.5 transition-colors"
           >
             <Plus className="h-3.5 w-3.5" />
@@ -2951,6 +3362,7 @@ export default function TutorialApp() {
                   key={tab}
                   type="button"
                   onClick={() => setActiveTab(tab)}
+                  data-tutorial={`tutorial-tab-${tab}`}
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${activeTab === tab ? "bg-secondary text-foreground" : "text-muted-foreground hover:text-foreground hover:bg-secondary/60"}`}
                 >
                   <Icon className="h-3.5 w-3.5" />
@@ -2968,6 +3380,7 @@ export default function TutorialApp() {
             onClick={openTutorial}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors"
             title="Open tutorial"
+            data-tutorial="tutorial-tutorial-btn"
           >
             <BookOpen className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">Tutorial</span>
@@ -2980,6 +3393,7 @@ export default function TutorialApp() {
                 type="button"
                 onClick={undo}
                 disabled={!canUndo}
+                data-tutorial="tutorial-undo"
                 className="flex items-center gap-1 px-2.5 py-1.5 rounded-md text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors disabled:opacity-30 disabled:pointer-events-none"
                 title="Undo"
               >
@@ -3052,12 +3466,14 @@ export default function TutorialApp() {
       <main className="flex-1 overflow-hidden flex flex-col">
         {activeTab === "board" && (
           <>
-            <FilterBarT
-              users={users}
-              tags={tags}
-              filters={filters}
-              onChange={setFilters}
-            />
+            <div data-tutorial="tutorial-filterbar">
+              <FilterBarT
+                users={users}
+                tags={tags}
+                filters={filters}
+                onChange={setFilters}
+              />
+            </div>
 
             <DndContext
               sensors={sensors}
@@ -3070,7 +3486,10 @@ export default function TutorialApp() {
                 items={columnSortableIds}
                 strategy={horizontalListSortingStrategy}
               >
-                <div className="flex gap-5 p-6 overflow-x-auto kanban-board flex-1 items-start">
+                <div
+                  className="flex gap-5 p-6 overflow-x-auto kanban-board flex-1 items-start"
+                  data-tutorial="tutorial-board"
+                >
                   {effectiveColumns.map((column, idx) => {
                     const colCards = cards.filter(
                       (c) => c.columnId === column.id,
@@ -3092,6 +3511,7 @@ export default function TutorialApp() {
                         allColumns={effectiveColumns}
                         isDraggingColumn={draggingColumnId !== null}
                         showArchived={filters.showArchived}
+                        tutorialIdx={idx}
                       />
                     );
                   })}

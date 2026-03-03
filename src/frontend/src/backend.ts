@@ -100,6 +100,7 @@ export interface ColumnView {
     name: string;
     projectId: bigint;
     cardIds: Array<bigint>;
+    isComplete: boolean;
 }
 export interface Tag {
     id: bigint;
@@ -238,6 +239,7 @@ export interface backendInterface {
     restoreCard(cardId: bigint, actorUserId: bigint): Promise<void>;
     saveFilterPreset(projectId: bigint, createdByUserId: bigint, name: string, assigneeId: bigint | null, tagIds: Array<bigint>, unassignedOnly: boolean, textSearch: string, dateField: string | null, dateFrom: string, dateTo: string): Promise<bigint>;
     setAccessKey(newKey: string, actorUserId: bigint): Promise<void>;
+    setColumnComplete(columnId: bigint, isComplete: boolean, actorUserId: bigint): Promise<void>;
     setMasterAdminSecurityQuestion(question: string, answerHash: string, actorUserId: bigint): Promise<void>;
     setupMasterAdmin(name: string, pinHash: string): Promise<bigint>;
     updateCard(cardId: bigint, title: string, description: string | null, actorUserId: bigint): Promise<void>;
@@ -1045,6 +1047,20 @@ export class Backend implements backendInterface {
             }
         } else {
             const result = await this.actor.setAccessKey(arg0, arg1);
+            return result;
+        }
+    }
+    async setColumnComplete(arg0: bigint, arg1: boolean, arg2: bigint): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.setColumnComplete(arg0, arg1, arg2);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.setColumnComplete(arg0, arg1, arg2);
             return result;
         }
     }

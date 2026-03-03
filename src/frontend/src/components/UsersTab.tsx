@@ -462,9 +462,10 @@ function SetActiveConfirm({
         user={user}
         activeUser={activeUser}
         onSuccess={(newPin) => {
+          // Pre-fill the PIN but do NOT auto-login — user must click Confirm
           setPin(newPin);
           setShowForgot(false);
-          handleConfirm(newPin);
+          // Do not call handleConfirm here so master admin stays as active user
         }}
         onCancel={() => setShowForgot(false)}
       />
@@ -844,7 +845,13 @@ interface UserRowProps {
   allUsers?: User[];
 }
 
-type RowAction = "delete" | "setActive" | "changePin" | "forgotPin" | null;
+type RowAction =
+  | "delete"
+  | "setActive"
+  | "changePin"
+  | "forgotPin"
+  | "resetPin"
+  | null;
 
 function UserRow({
   user,
@@ -1067,6 +1074,20 @@ function UserRow({
               <KeyRound className="h-3.5 w-3.5" />
             </Button>
           )}
+          {/* Admin reset PIN for other users — without switching active user */}
+          {!isActive && (activeUser?.isAdmin || activeUser?.isMasterAdmin) && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 text-xs px-2 text-muted-foreground hover:text-amber-600"
+              onClick={() =>
+                setAction(action === "resetPin" ? null : "resetPin")
+              }
+              title="Reset this user's PIN (admin)"
+            >
+              <KeyRound className="h-3.5 w-3.5" />
+            </Button>
+          )}
           {!isActive && (
             <Button
               size="sm"
@@ -1132,6 +1153,17 @@ function UserRow({
           masterAdmin={masterAdmin}
           onSuccess={(newPin) => {
             void newPin;
+            setAction(null);
+          }}
+          onCancel={() => setAction(null)}
+        />
+      )}
+      {action === "resetPin" && (
+        <AdminResetByRole
+          user={user}
+          activeUser={activeUser}
+          onSuccess={() => {
+            // Reset PIN only — do NOT switch active user
             setAction(null);
           }}
           onCancel={() => setAction(null)}

@@ -46,9 +46,13 @@ interface FilterBarProps {
   onSavePreset?: (name: string) => Promise<void>;
   onDeletePreset?: (presetId: bigint) => Promise<void>;
   onApplyPreset?: (preset: FilterPreset) => void;
+  /** Number of cards matching the current filters (null when no filter active) */
+  filteredCount?: number | null;
+  /** Total number of active cards on the board */
+  totalCount?: number;
 }
 
-function isFilterActive(filters: FilterState): boolean {
+export function isFilterActive(filters: FilterState): boolean {
   return (
     filters.assigneeId !== null ||
     filters.tagIds.length > 0 ||
@@ -69,6 +73,8 @@ export default function FilterBar({
   onSavePreset,
   onDeletePreset,
   onApplyPreset,
+  filteredCount,
+  totalCount,
 }: FilterBarProps) {
   const [expanded, setExpanded] = useState(false);
   const [presetsOpen, setPresetsOpen] = useState(false);
@@ -384,6 +390,23 @@ export default function FilterBar({
             Clear all
           </button>
         )}
+
+        {/* Filter result count inline badge */}
+        {hasFilters &&
+          filteredCount !== null &&
+          filteredCount !== undefined && (
+            <span
+              className={`ml-auto text-xs font-semibold px-2.5 py-1 rounded-full border shrink-0 ${
+                filteredCount === 0
+                  ? "bg-destructive/10 text-destructive border-destructive/20"
+                  : "bg-primary/10 text-primary border-primary/20"
+              }`}
+            >
+              {filteredCount === 0
+                ? "No matches"
+                : `${filteredCount} match${filteredCount !== 1 ? "es" : ""}${totalCount !== undefined ? ` of ${totalCount}` : ""}`}
+            </span>
+          )}
       </div>
 
       {/* Expanded filter panel */}
