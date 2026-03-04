@@ -662,6 +662,8 @@ const TUTORIAL_STEPS: TutorialStep[] = [
 
 // ── Tutorial Callout Line ─────────────────────────────────────────────────────
 
+const CALLOUT_COLOR = "#1e40af"; // blue-800 — WCAG-compliant on light/beige backgrounds
+
 function TutorialCalloutLine({
   fromX,
   fromY,
@@ -685,32 +687,34 @@ function TutorialCalloutLine({
         y1={fromY}
         x2={toX}
         y2={toY}
-        stroke="white"
+        stroke={CALLOUT_COLOR}
         strokeWidth="2"
-        strokeDasharray="4 3"
-        opacity="0.8"
-      />
-      <circle
-        cx={toX}
-        cy={toY}
-        r="6"
-        fill="hsl(var(--primary))"
+        strokeDasharray="6 4"
         opacity="0.9"
       />
+      {/* Target dot — filled circle at the point being highlighted */}
+      <circle cx={toX} cy={toY} r="6" fill={CALLOUT_COLOR} opacity="0.95" />
+      {/* Pulsing ring around the target dot */}
       <circle
         cx={toX}
         cy={toY}
         r="12"
         fill="none"
-        stroke="hsl(var(--primary))"
+        stroke={CALLOUT_COLOR}
         strokeWidth="2"
-        opacity="0.5"
+        opacity="0.4"
       />
+      {/* Origin dot at tooltip edge */}
+      <circle cx={fromX} cy={fromY} r="4" fill={CALLOUT_COLOR} opacity="0.7" />
     </svg>
   );
 }
 
 // ── Tutorial Overlay ──────────────────────────────────────────────────────────
+
+const TOOLTIP_WIDTH = 320;
+const TOOLTIP_HEIGHT_ESTIMATE = 220; // used for positioning; actual height may vary
+const TOOLTIP_OFFSET = 66; // gap between tooltip and target element (increased for clarity)
 
 function TutorialOverlay({
   onClose,
@@ -724,7 +728,7 @@ function TutorialOverlay({
   const [tooltipPos, setTooltipPos] = useState<{
     top: number;
     left: number;
-    arrowSide: string;
+    placement: string;
   } | null>(null);
   const [targetCenter, setTargetCenter] = useState<{
     x: number;
@@ -733,6 +737,29 @@ function TutorialOverlay({
   const [targetRect, setTargetRect] = useState<DOMRect | null>(null);
 
   const currentStep = step !== null ? TUTORIAL_STEPS[step] : null;
+
+  // Elevate target element above the dim overlay so it's clearly visible
+  useEffect(() => {
+    if (step === null || !currentStep?.target) return;
+
+    const targetEl = document.querySelector<HTMLElement>(
+      `[data-tutorial="${currentStep.target}"]`,
+    );
+    if (!targetEl) return;
+
+    const originalPosition = targetEl.style.position;
+    const originalZIndex = targetEl.style.zIndex;
+    // Elevate target above dim overlay so it visually pops out
+    if (!targetEl.style.position || targetEl.style.position === "static") {
+      targetEl.style.position = "relative";
+    }
+    targetEl.style.zIndex = "9999";
+
+    return () => {
+      targetEl.style.position = originalPosition;
+      targetEl.style.zIndex = originalZIndex;
+    };
+  }, [step, currentStep]);
 
   // Position tooltip relative to target element
   useEffect(() => {
@@ -761,74 +788,69 @@ function TutorialOverlay({
         y: rect.top + rect.height / 2,
       });
 
-      const tooltipWidth = 320;
-      const tooltipHeight = 200; // estimated
       const padding = 16;
-      const arrowSize = 10;
 
       const placement = currentStep!.placement ?? "bottom";
       let top = 0;
       let left = 0;
-      let arrowSide = "top";
 
       if (placement === "bottom") {
-        top = rect.bottom + arrowSize + padding / 2;
+        // Tooltip BELOW the target — offset far enough to not cover it
+        top = rect.bottom + TOOLTIP_OFFSET;
         left = Math.max(
           padding,
           Math.min(
-            rect.left + rect.width / 2 - tooltipWidth / 2,
-            window.innerWidth - tooltipWidth - padding,
+            rect.left + rect.width / 2 - TOOLTIP_WIDTH / 2,
+            window.innerWidth - TOOLTIP_WIDTH - padding,
           ),
         );
-        arrowSide = "top";
       } else if (placement === "top") {
-        top = rect.top - tooltipHeight - arrowSize - padding / 2;
+        // Tooltip ABOVE the target
+        top = rect.top - TOOLTIP_HEIGHT_ESTIMATE - TOOLTIP_OFFSET;
         left = Math.max(
           padding,
           Math.min(
-            rect.left + rect.width / 2 - tooltipWidth / 2,
-            window.innerWidth - tooltipWidth - padding,
+            rect.left + rect.width / 2 - TOOLTIP_WIDTH / 2,
+            window.innerWidth - TOOLTIP_WIDTH - padding,
           ),
         );
-        arrowSide = "bottom";
       } else if (placement === "right") {
+        // Tooltip to the RIGHT of the target
         top = Math.max(
           padding,
           Math.min(
-            rect.top + rect.height / 2 - tooltipHeight / 2,
-            window.innerHeight - tooltipHeight - padding,
+            rect.top + rect.height / 2 - TOOLTIP_HEIGHT_ESTIMATE / 2,
+            window.innerHeight - TOOLTIP_HEIGHT_ESTIMATE - padding,
           ),
         );
-        left = rect.right + arrowSize + padding / 2;
-        arrowSide = "left";
+        left = rect.right + TOOLTIP_OFFSET;
       } else if (placement === "left") {
+        // Tooltip to the LEFT of the target
         top = Math.max(
           padding,
           Math.min(
-            rect.top + rect.height / 2 - tooltipHeight / 2,
-            window.innerHeight - tooltipHeight - padding,
+            rect.top + rect.height / 2 - TOOLTIP_HEIGHT_ESTIMATE / 2,
+            window.innerHeight - TOOLTIP_HEIGHT_ESTIMATE - padding,
           ),
         );
-        left = rect.left - tooltipWidth - arrowSize - padding / 2;
-        arrowSide = "right";
+        left = rect.left - TOOLTIP_WIDTH - TOOLTIP_OFFSET;
       } else {
         // center — position in viewport center
-        top = window.innerHeight / 2 - tooltipHeight / 2;
-        left = window.innerWidth / 2 - tooltipWidth / 2;
-        arrowSide = "none";
+        top = window.innerHeight / 2 - TOOLTIP_HEIGHT_ESTIMATE / 2;
+        left = window.innerWidth / 2 - TOOLTIP_WIDTH / 2;
       }
 
       // Clamp to viewport
       top = Math.max(
         padding,
-        Math.min(top, window.innerHeight - tooltipHeight - padding),
+        Math.min(top, window.innerHeight - TOOLTIP_HEIGHT_ESTIMATE - padding),
       );
       left = Math.max(
         padding,
-        Math.min(left, window.innerWidth - tooltipWidth - padding),
+        Math.min(left, window.innerWidth - TOOLTIP_WIDTH - padding),
       );
 
-      setTooltipPos({ top, left, arrowSide });
+      setTooltipPos({ top, left, placement });
     }
 
     updatePosition();
@@ -932,43 +954,66 @@ function TutorialOverlay({
   // ── Callout step ────────────────────────────────────────────────────────────
   const hasTarget = !!targetCenter && currentStep?.placement !== "center";
 
-  // Compute tooltip anchor point for the callout line
-  const tooltipAnchor = tooltipPos
-    ? {
-        x: tooltipPos.left + 160, // center of 320px tooltip
-        y:
-          tooltipPos.arrowSide === "top"
-            ? tooltipPos.top
-            : tooltipPos.arrowSide === "bottom"
-              ? tooltipPos.top + 200
-              : tooltipPos.arrowSide === "left"
-                ? tooltipPos.top + 100
-                : tooltipPos.top + 100,
-      }
-    : null;
+  // Compute tooltip anchor point for the callout line.
+  // The line starts from the CENTER of the edge of the tooltip closest to the target.
+  const tooltipAnchor =
+    tooltipPos && hasTarget
+      ? (() => {
+          const placement = tooltipPos.placement;
+          if (placement === "bottom") {
+            // Tooltip is below the target → line starts from the TOP center of tooltip
+            return {
+              x: tooltipPos.left + TOOLTIP_WIDTH / 2,
+              y: tooltipPos.top,
+            };
+          }
+          if (placement === "top") {
+            // Tooltip is above the target → line starts from the BOTTOM center of tooltip
+            return {
+              x: tooltipPos.left + TOOLTIP_WIDTH / 2,
+              y: tooltipPos.top + TOOLTIP_HEIGHT_ESTIMATE,
+            };
+          }
+          if (placement === "right") {
+            // Tooltip is to the right of the target → line starts from the LEFT center of tooltip
+            return {
+              x: tooltipPos.left,
+              y: tooltipPos.top + TOOLTIP_HEIGHT_ESTIMATE / 2,
+            };
+          }
+          if (placement === "left") {
+            // Tooltip is to the left of the target → line starts from the RIGHT center of tooltip
+            return {
+              x: tooltipPos.left + TOOLTIP_WIDTH,
+              y: tooltipPos.top + TOOLTIP_HEIGHT_ESTIMATE / 2,
+            };
+          }
+          return null;
+        })()
+      : null;
 
   return (
     <>
       {/* Full-screen semi-transparent dimming overlay */}
       <div
         className="fixed inset-0 z-40 pointer-events-none"
-        style={{ background: "rgba(0,0,0,0.45)" }}
+        style={{ background: "rgba(0,0,0,0.5)" }}
       />
 
-      {/* Target highlight ring */}
+      {/* Target highlight ring — z-index 9997, sits under the elevated target element (9999) */}
       {hasTarget && targetRect && (
         <div
           className="fixed pointer-events-none"
           style={{
             zIndex: 9997,
-            top: targetRect.top - 4,
-            left: targetRect.left - 4,
-            width: targetRect.width + 8,
-            height: targetRect.height + 8,
-            outline: "2px solid hsl(var(--primary))",
+            top: targetRect.top - 6,
+            left: targetRect.left - 6,
+            width: targetRect.width + 12,
+            height: targetRect.height + 12,
+            outline: `3px solid ${CALLOUT_COLOR}`,
             outlineOffset: "0px",
-            borderRadius: "8px",
-            boxShadow: "0 0 0 4px hsl(var(--primary) / 0.2)",
+            borderRadius: "10px",
+            boxShadow: `0 0 0 6px ${CALLOUT_COLOR}33, 0 0 20px ${CALLOUT_COLOR}40`,
             transition: "all 300ms ease",
           }}
         />
@@ -995,18 +1040,23 @@ function TutorialOverlay({
         role="presentation"
       />
 
-      {/* Tooltip panel */}
+      {/* Tooltip panel — z-50 sits above everything including the elevated target */}
       <dialog
         ref={tooltipRef}
         open
-        className="fixed z-50 m-0 w-80 rounded-2xl border border-border bg-card shadow-2xl overflow-hidden p-0"
+        className="fixed z-50 m-0 w-80 rounded-2xl border-2 bg-card shadow-2xl overflow-hidden p-0"
         style={
           tooltipPos
-            ? { top: tooltipPos.top, left: tooltipPos.left }
+            ? {
+                top: tooltipPos.top,
+                left: tooltipPos.left,
+                borderColor: CALLOUT_COLOR,
+              }
             : {
                 top: "50%",
                 left: "50%",
                 transform: "translate(-50%, -50%)",
+                borderColor: CALLOUT_COLOR,
               }
         }
         onClick={(e) => e.stopPropagation()}

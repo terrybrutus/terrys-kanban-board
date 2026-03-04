@@ -1,73 +1,45 @@
 # Kanban Board
 
 ## Current State
-Version 22 Kanban board application on ICP (Motoko + React). Full-featured board with columns, cards, users, tags, swimlanes, checklists, comments, filter presets, undo/redo, export/import, tutorial, and dashboard. Previous build failed; all 15 Version 22 fixes remain unimplemented in the current codebase.
+Version 23 deployed. Full-featured Kanban board with multi-project support, cards, columns, tags, users, swimlanes, undo/redo, dashboard, tutorial overlay. Four critical bugs remain:
+
+1. **Tutorial overlay**: target element not brought to foreground (no z-index elevation), callout line uses white on light background (not WCAG), tooltip boxes overlap the element they point to, line anchor goes to edge not center of tooltip, tooltip is not offset enough away from target.
+
+2. **Cards disappearing on multi-move**: `moveCards` backend function reads `targetColumn` once and clones its `cardIds` once per loop iteration using the same stale reference — so each card overwrites the previous, leaving only the last card in the target.
+
+3. **Undo/Redo broken**: `handleDeleteCard` and `handleMoveCards` (bulk move) never call `pushUndo`, so undo stack is empty after these operations. Undo button stays unclickable.
+
+4. **Column delete broken**: Backend `deleteColumn` deletes any cards still in the column. When destination migration fails or is skipped, those cards are permanently lost. Undo re-creates the column but can't restore deleted cards. Also `moveCards` bug (issue #2) means migration itself loses cards.
 
 ## Requested Changes (Diff)
 
 ### Add
-- **Column `isComplete` flag** (backend): add `isComplete: Bool` field to Column type and `ColumnView` type. Add `setColumnComplete(columnId, isComplete, actorUserId)` backend function so admins can flag any column as the "completion stage."
-- **Dashboard completion metric**: cards in any column marked `isComplete` count as completed. Dashboard "Completion" stat card shows count + percentage of active cards in complete columns.
-- **Column complete indicator**: column header shows a small green checkmark badge when `isComplete = true`. Admin sees toggle in column ellipsis menu ("Mark as complete" / "Unmark as complete").
-- **Filter results count banner**: when filters are active, show a slim bar below the filter bar with "X cards match (of Y total)" message. Already partially implemented in code but needs verified.
-- **Tutorial horizontal scroll step**: add a step explaining Shift+scroll (or just scroll on the board background) for horizontal navigation.
+- Tutorial: cutout/highlight effect so target element visually lifts above dimmed overlay (mix-blend or z-index elevation + bright ring)
+- Tutorial: WCAG-compliant callout line color (dark on light: use `hsl(var(--foreground))` or a strong blue)
+- Tutorial: tooltip positioned with adequate gap from target (at least 40-60px offset), never overlapping target element
+- Tutorial: callout line goes from center-edge of tooltip to center of target element
+- Tutorial: pointer dot lands on edge/boundary of target, not on text content inside it
+- Undo entry for `deleteCard` (undo = restore card, redo = delete again)
+- Undo entry for `handleMoveCards` / bulk move (undo = move back to original columns, redo = move forward again)
 
 ### Modify
-- **Column delete card migration (BUG FIX)**: rewrite `handleDeleteColumn` to: (1) call `moveCards` with ALL card IDs from the column, (2) await with proper error handling, (3) only then call `deleteColumn`. Currently cards get deleted instead of migrated.
-- **Undo/Redo full state snapshots (BUG FIX)**: rebuild undo/redo for destructive actions (column delete, bulk moves) to capture full column+card state snapshot. Undo column deletion must restore the column AND all its original cards. Currently only partial state saved.
-- **Import mapping modal layout (BUG FIX)**: fix modal so it uses proper `flex flex-col` layout with `overflow-hidden` on the container, `flex-1 overflow-y-auto` on the scrollable content area, and a `shrink-0` sticky footer with the action buttons. The confirm button must always be visible without tabbing.
-- **Progress bar colors (BUG FIX)**: progress bar borders should be 1px black. Fill colors must be WCAG-compliant and contrast against the beige/card background. Use a multi-color distinct palette (blues, greens, ambers, teals, purples) — NOT white or solid black fills. Apply to DashboardTab ProgressRow component.
-- **Card click area (BUG FIX)**: entire card body should open modal on click. Currently only near the title works. The card div already has `onClick` but the inner content area has `pr-20` padding creating dead zones. Ensure click propagates correctly from any part of the card body.
-- **Card description hover movement (BUG FIX)**: card description text should not move on hover. Remove any hover transform or layout shift on the description `<p>` tag. Likely caused by action buttons appearing on hover and shifting the layout — ensure action buttons are positioned absolutely and don't affect flow.
-- **Horizontal scroll (BUG FIX)**: the board scroll handler currently fires only when `scrollWidth > clientWidth`. The issue is the `handleWheel` event isn't attached correctly or the condition fails. Fix: always allow horizontal scroll on the board container when Shift is held, OR ensure the board container always allows the scroll handler to intercept wheel events regardless of overflow condition. Also ensure the board div has `overflow-x: scroll` (not just `overflow-x: auto`).
-- **Imported users PIN default (BUG FIX)**: in `exportImport.ts` `importProject` function, when creating new users, always use a hash of "0000" as the default PIN. Currently uses an unknown hash.
-- **Master admin PIN reset no auto-switch (BUG FIX)**: in `UsersTab.tsx`, when master admin resets another user's PIN, do NOT call `setActiveUser` afterwards. The active user should remain whoever was active before the reset.
-- **Dashboard completion metric data source**: update DashboardTab to receive `columns` data and compute completion as: cards whose `columnId` maps to a column with `isComplete = true`.
-- **Tutorial pointer style**: replace flashlight/spotlight overlay with a line-and-dot callout arrow style. Each step: dim the background, draw a visible line from the tooltip to the target element, put a dot at the target end. Use SVG overlay for the connecting line. Target element gets a subtle highlight ring (no flashlight mask).
-- **Card borders**: ensure all cards have `border-2 border-black/60` (dark mode: `dark:border-white/20`). Already in code but verify it's applied consistently including in tutorial.
-- **Dashboard progress bars 1px border**: update ProgressRow to use `border border-black` (1px). Currently has `border-2`.
+- **Backend `moveCards`**: re-fetch `targetColumn` from `columns` store inside each loop iteration (not once before the loop) so accumulated card IDs are read fresh each time
+- **Backend `deleteColumn`**: before deletion, move all remaining cards to a fallback column OR preserve them in an "orphan" state; do NOT delete cards when column is deleted if `moveCards` was supposed to handle migration already
+- **Frontend `handleDeleteColumn`**: await `moveCards` fully, then refresh columns/cards query before calling `deleteColumn`, with a longer settle delay (500ms); capture full card list snapshot for undo
+- **Frontend `handleMoveCards`**: add `pushUndo` after success with original column IDs per card stored in snapshot
+- **Frontend `handleDeleteCard`**: add `pushUndo` after success (undo = recreate card is impossible without backend support; instead, use archive/restore as a proxy — archive on delete, restore on undo, if backend supports it; otherwise skip undo for permanent delete but at minimum make the button reflect reality)
+- **Tutorial `TutorialCalloutLine`**: change `stroke="white"` to `stroke="#1d4ed8"` (blue-700, WCAG contrast on beige/white backgrounds)
+- **Tutorial `TutorialOverlay`**: add logic to elevate target element z-index while step is active; increase placement offset from `padding/2` to `56px`; compute `tooltipAnchor` as the side-center of tooltip (not top/bottom edge) so line meets tooltip at its wall
+- **Tutorial step placements**: audit steps where tooltip currently overlaps target — especially QuickAdd (step 6), Cards, Columns steps — and switch placements to ensure tooltip is on the far side
 
 ### Remove
-- Nothing removed.
+- Nothing removed
 
 ## Implementation Plan
-
-1. **Backend**: Add `isComplete: Bool` to `Column` type and `ColumnView` type. Add `setColumnComplete` function. Update `getColumns` to include `isComplete` in `ColumnView.fromColumn`.
-
-2. **backend.d.ts**: Update ColumnView type to include `isComplete: boolean`. Add `setColumnComplete` function signature.
-
-3. **DashboardTab.tsx**: 
-   - Accept `columns` prop (already fetched internally)
-   - Compute completion count as cards in columns where `isComplete = true`
-   - Update "Completion" StatCard to show this count and percentage
-   - Fix ProgressRow border to `border border-black`
-   - Fix progress bar fill colors to use distinct multi-color WCAG palette
-
-4. **KanbanColumn.tsx**:
-   - Add `isComplete` display in column header (green checkmark badge)
-   - Add "Mark as complete" / "Unmark as complete" in column ellipsis menu
-   - Wire `onSetColumnComplete` callback prop
-   - Fix column delete: sequential move-then-delete with proper awaits
-
-5. **App.tsx**:
-   - Wire `setColumnComplete` mutation and handler
-   - Pass `isComplete` columns to DashboardTab
-   - Fix `handleDeleteColumn` to be truly sequential: await moveCards first, then deleteColumn
-   - Fix horizontal scroll: ensure wheel handler works even when scrollWidth <= clientWidth if board has columns (use `overflow-x: scroll` CSS or always intercept Shift+wheel)
-
-6. **KanbanCard.tsx**:
-   - Fix card click area: remove any hover layout shift; ensure action buttons are `position: absolute` and don't create layout reflow on hover
-   - Fix card description: remove hover transform/transition on description text
-
-7. **UsersTab.tsx**: Fix `resetUserPin` handler — after reset, do NOT set active user.
-
-8. **ProjectExportImport.tsx (exportImport.ts)**: Fix imported user PIN to default to hash of "0000".
-
-9. **FilterBar / App.tsx**: Verify filter results count banner renders correctly.
-
-10. **TutorialApp.tsx**: 
-    - Replace spotlight/flashlight with line-and-dot callout arrow SVG overlay
-    - Add horizontal scroll step (explaining Shift+scroll or mouse wheel on board)
-    - Ensure tutorial columns also show `isComplete` concept
-
-11. **useQueries.ts / hooks**: Add `useSetColumnComplete` mutation hook.
+1. Fix Motoko `moveCards` — re-fetch target column inside loop
+2. Fix Motoko `deleteColumn` — do not delete cards; move remaining ones to first available sibling or leave with null columnId
+3. Frontend: fix `handleDeleteColumn` — longer settle, invalidate queries before deleting
+4. Frontend: add `pushUndo` to `handleMoveCards`
+5. Frontend: add `pushUndo` to `handleDeleteCard` (using archive/restore pair)
+6. Frontend: fix tutorial overlay — WCAG line color, z-index elevation for target, tooltip offset, line anchor
+7. Build and validate

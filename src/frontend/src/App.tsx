@@ -89,7 +89,6 @@ import {
   useInitDefaultProject,
   useIsAdminSetup,
   useMoveCard,
-  useMoveCards,
   useProjectTags,
   useProjects,
   useRenameColumn,
@@ -270,7 +269,6 @@ function AppInner() {
   const { mutateAsync: updateCard } = useUpdateCard();
   const { mutateAsync: deleteCard } = useDeleteCard();
   const { mutateAsync: moveCard } = useMoveCard();
-  const { mutateAsync: moveCards } = useMoveCards();
   const { mutateAsync: assignCard } = useAssignCard();
   const { mutateAsync: updateCardTags } = useUpdateCardTags();
   const { mutateAsync: updateCardDueDate } = useUpdateCardDueDate();
@@ -593,16 +591,22 @@ function AppInner() {
       const capturedProjectId = activeProjectId;
 
       try {
-        // STEP 1: Move all cards to destination BEFORE deleting
+        // STEP 1: Move all cards one-by-one to destination (avoids backend moveCards stale-reference bug)
         if (destinationColumnId != null && capturedCardIds.length > 0) {
-          await moveCards({
-            cardIds: capturedCardIds,
-            targetColumnId: destinationColumnId,
-            actorUserId: capturedUserId,
-            projectId: capturedProjectId ?? undefined,
-          });
-          // Wait for state to propagate
-          await new Promise((r) => setTimeout(r, 200));
+          const targetCol = columns.find((c) => c.id === destinationColumnId);
+          let position = BigInt(targetCol?.cardIds.length ?? 0);
+          for (const cardId of capturedCardIds) {
+            await moveCard({
+              cardId,
+              targetColumnId: destinationColumnId,
+              newPosition: position,
+              actorUserId: capturedUserId,
+              projectId: capturedProjectId ?? undefined,
+            });
+            position += 1n;
+          }
+          // Wait for state to settle before deleting the now-empty column
+          await new Promise((r) => setTimeout(r, 300));
         }
 
         // STEP 2: Delete the column (now empty)
@@ -623,28 +627,40 @@ function AppInner() {
                 actorUserId: capturedUserId,
                 projectId: capturedProjectId ?? (0n as bigint),
               });
-              if (capturedCardIds.length > 0) {
-                await moveCards({
-                  cardIds: capturedCardIds,
-                  targetColumnId: newColId,
-                  actorUserId: capturedUserId,
-                  projectId: capturedProjectId ?? undefined,
-                });
+              // Move cards back from destination to the new column
+              if (destinationColumnId != null && capturedCardIds.length > 0) {
+                let pos = 0n;
+                for (const cardId of capturedCardIds) {
+                  await moveCard({
+                    cardId,
+                    targetColumnId: newColId,
+                    newPosition: pos,
+                    actorUserId: capturedUserId,
+                    projectId: capturedProjectId ?? undefined,
+                  });
+                  pos += 1n;
+                }
               }
             },
             redoFn: async () => {
+              // Find the re-created column by name and delete it again
               const currentCols = columns;
               const col = currentCols.find(
                 (c) => c.name === capturedColumn.name,
               );
               if (col) {
                 if (col.cardIds.length > 0 && destinationColumnId != null) {
-                  await moveCards({
-                    cardIds: col.cardIds,
-                    targetColumnId: destinationColumnId,
-                    actorUserId: capturedUserId,
-                    projectId: capturedProjectId ?? undefined,
-                  });
+                  let pos = 0n;
+                  for (const cid of col.cardIds) {
+                    await moveCard({
+                      cardId: cid,
+                      targetColumnId: destinationColumnId,
+                      newPosition: pos,
+                      actorUserId: capturedUserId,
+                      projectId: capturedProjectId ?? undefined,
+                    });
+                    pos += 1n;
+                  }
                 }
                 await deleteColumn({
                   columnId: col.id,
@@ -664,7 +680,7 @@ function AppInner() {
     [
       deleteColumn,
       createColumn,
-      moveCards,
+      moveCard,
       activeUser,
       activeProjectId,
       columns,
@@ -1083,12 +1099,72 @@ function AppInner() {
         toast.error("Please set yourself as active in the Users tab first");
         throw new Error("No active user");
       }
+
+      // Capture original column for each card (for undo)
+      const cardOriginalColumns = new Map<
+        string,
+        { columnId: bigint; position: bigint }
+      >();
+      for (const cardId of cardIds) {
+        const card = cards.find((c) => c.id === cardId);
+        if (card) {
+          const col = columns.find((c) => c.id === card.columnId);
+          const pos = col
+            ? BigInt(col.cardIds.findIndex((id) => id === cardId))
+            : 0n;
+          cardOriginalColumns.set(cardId.toString(), {
+            columnId: card.columnId,
+            position: pos >= 0n ? pos : 0n,
+          });
+        }
+      }
+
       try {
-        await moveCards({
-          cardIds,
-          targetColumnId,
-          actorUserId: activeUser.id,
-          projectId: activeProjectId ?? undefined,
+        // Use sequential moveCard calls to work around backend moveCards stale-reference bug
+        const targetCol = columns.find((c) => c.id === targetColumnId);
+        let position = BigInt(targetCol?.cardIds.length ?? 0);
+        for (const cardId of cardIds) {
+          await moveCard({
+            cardId,
+            targetColumnId,
+            newPosition: position,
+            actorUserId: activeUser.id,
+            projectId: activeProjectId ?? undefined,
+          });
+          position += 1n;
+        }
+
+        // Push undo for the bulk move
+        const capturedUserId = activeUser.id;
+        const capturedProjectId = activeProjectId;
+        pushUndo({
+          label: `Move ${cardIds.length} cards`,
+          undoFn: async () => {
+            for (const [cardIdStr, original] of cardOriginalColumns.entries()) {
+              const cardId = BigInt(cardIdStr);
+              await moveCard({
+                cardId,
+                targetColumnId: original.columnId,
+                newPosition: original.position,
+                actorUserId: capturedUserId,
+                projectId: capturedProjectId ?? undefined,
+              });
+            }
+          },
+          redoFn: async () => {
+            const tc = columns.find((c) => c.id === targetColumnId);
+            let pos = BigInt(tc?.cardIds.length ?? 0);
+            for (const cardId of cardIds) {
+              await moveCard({
+                cardId,
+                targetColumnId,
+                newPosition: pos,
+                actorUserId: capturedUserId,
+                projectId: capturedProjectId ?? undefined,
+              });
+              pos += 1n;
+            }
+          },
         });
       } catch (err) {
         if (err instanceof Error && err.message === "No active user") throw err;
@@ -1096,7 +1172,7 @@ function AppInner() {
         throw new Error("Failed to move cards");
       }
     },
-    [moveCards, activeUser, activeProjectId],
+    [moveCard, activeUser, activeProjectId, cards, columns, pushUndo],
   );
 
   // ── Quick switcher: confirm PIN ─────────────────────────────────────────────

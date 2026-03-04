@@ -8,10 +8,10 @@ import Time "mo:core/Time";
 import Order "mo:core/Order";
 import Runtime "mo:core/Runtime";
 import Iter "mo:core/Iter";
-import Migration "migration";
+
 
 // Use migration module for seamless upgrade
-(with migration = Migration.run)
+
 actor {
   ///////////////////////////
   // Types
