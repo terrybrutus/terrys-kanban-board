@@ -85,6 +85,12 @@ export const Project = IDL.Record({
   'name' : IDL.Text,
   'swimlanesEnabled' : IDL.Bool,
 });
+export const SnapshotMeta = IDL.Record({
+  'id' : IDL.Nat,
+  'takenByName' : IDL.Text,
+  'takenAt' : IDL.Int,
+  'snapshotLabel' : IDL.Text,
+});
 export const Swimlane = IDL.Record({
   'id' : IDL.Nat,
   'order' : IDL.Nat,
@@ -124,6 +130,7 @@ export const idlService = IDL.Service({
   'deleteComment' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
   'deleteFilterPreset' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
   'deleteProject' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
+  'deleteSnapshot' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
   'deleteSwimlane' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
   'deleteTag' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
   'deleteUser' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
@@ -146,8 +153,11 @@ export const idlService = IDL.Service({
   'getProjectTags' : IDL.Func([IDL.Nat], [IDL.Vec(Tag)], ['query']),
   'getProjects' : IDL.Func([], [IDL.Vec(Project)], ['query']),
   'getRevisions' : IDL.Func([IDL.Nat], [IDL.Vec(Revision)], ['query']),
+  'getSnapshot' : IDL.Func([IDL.Nat], [IDL.Opt(IDL.Text)], ['query']),
+  'getSnapshots' : IDL.Func([], [IDL.Vec(SnapshotMeta)], ['query']),
   'getSwimlanes' : IDL.Func([IDL.Nat], [IDL.Vec(Swimlane)], ['query']),
   'getUsers' : IDL.Func([], [IDL.Vec(User)], ['query']),
+  'grantSnapshotAccess' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
   'initBoard' : IDL.Func([], [], []),
   'initDefaultProject' : IDL.Func([], [IDL.Nat], []),
   'isAdminSetup' : IDL.Func([], [IDL.Bool], ['query']),
@@ -173,6 +183,7 @@ export const idlService = IDL.Service({
     ),
   'resetUserPin' : IDL.Func([IDL.Nat, IDL.Nat, IDL.Text], [], []),
   'restoreCard' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
+  'revokeSnapshotAccess' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
   'saveFilterPreset' : IDL.Func(
       [
         IDL.Nat,
@@ -197,6 +208,7 @@ export const idlService = IDL.Service({
       [],
     ),
   'setupMasterAdmin' : IDL.Func([IDL.Text, IDL.Text], [IDL.Nat], []),
+  'takeSnapshot' : IDL.Func([IDL.Text, IDL.Nat], [IDL.Nat], []),
   'updateCard' : IDL.Func(
       [IDL.Nat, IDL.Text, IDL.Opt(IDL.Text), IDL.Nat],
       [],
@@ -293,6 +305,12 @@ export const idlFactory = ({ IDL }) => {
     'name' : IDL.Text,
     'swimlanesEnabled' : IDL.Bool,
   });
+  const SnapshotMeta = IDL.Record({
+    'id' : IDL.Nat,
+    'takenByName' : IDL.Text,
+    'takenAt' : IDL.Int,
+    'snapshotLabel' : IDL.Text,
+  });
   const Swimlane = IDL.Record({
     'id' : IDL.Nat,
     'order' : IDL.Nat,
@@ -336,6 +354,7 @@ export const idlFactory = ({ IDL }) => {
     'deleteComment' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
     'deleteFilterPreset' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
     'deleteProject' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
+    'deleteSnapshot' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
     'deleteSwimlane' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
     'deleteTag' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
     'deleteUser' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
@@ -362,8 +381,11 @@ export const idlFactory = ({ IDL }) => {
     'getProjectTags' : IDL.Func([IDL.Nat], [IDL.Vec(Tag)], ['query']),
     'getProjects' : IDL.Func([], [IDL.Vec(Project)], ['query']),
     'getRevisions' : IDL.Func([IDL.Nat], [IDL.Vec(Revision)], ['query']),
+    'getSnapshot' : IDL.Func([IDL.Nat], [IDL.Opt(IDL.Text)], ['query']),
+    'getSnapshots' : IDL.Func([], [IDL.Vec(SnapshotMeta)], ['query']),
     'getSwimlanes' : IDL.Func([IDL.Nat], [IDL.Vec(Swimlane)], ['query']),
     'getUsers' : IDL.Func([], [IDL.Vec(User)], ['query']),
+    'grantSnapshotAccess' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
     'initBoard' : IDL.Func([], [], []),
     'initDefaultProject' : IDL.Func([], [IDL.Nat], []),
     'isAdminSetup' : IDL.Func([], [IDL.Bool], ['query']),
@@ -389,6 +411,7 @@ export const idlFactory = ({ IDL }) => {
       ),
     'resetUserPin' : IDL.Func([IDL.Nat, IDL.Nat, IDL.Text], [], []),
     'restoreCard' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
+    'revokeSnapshotAccess' : IDL.Func([IDL.Nat, IDL.Nat], [], []),
     'saveFilterPreset' : IDL.Func(
         [
           IDL.Nat,
@@ -413,6 +436,7 @@ export const idlFactory = ({ IDL }) => {
         [],
       ),
     'setupMasterAdmin' : IDL.Func([IDL.Text, IDL.Text], [IDL.Nat], []),
+    'takeSnapshot' : IDL.Func([IDL.Text, IDL.Nat], [IDL.Nat], []),
     'updateCard' : IDL.Func(
         [IDL.Nat, IDL.Text, IDL.Opt(IDL.Text), IDL.Nat],
         [],

@@ -10,6 +10,404 @@ function isoToBigintNs(iso: string): bigint {
   return BigInt(new Date(iso).getTime()) * 1_000_000n;
 }
 
+// ─── Snapshot Restore ─────────────────────────────────────────────────────────
+// The backend snapshot is in a raw flat format (different from the export/import JSON).
+// This function handles that format directly.
+
+export interface SnapshotRestoreResult {
+  success: boolean;
+  errors: string[];
+  warnings: string[];
+  counts: {
+    columnsRestored: number;
+    cardsRestored: number;
+    tagsRestored: number;
+    swimlanesRestored: number;
+  };
+}
+
+// Raw types from backend snapshot (numeric IDs as strings in JSON)
+interface RawSnapshotProject {
+  id: string | number;
+  name: string;
+  swimlanesEnabled?: boolean;
+}
+
+interface RawSnapshotColumn {
+  id: string | number;
+  name: string;
+  projectId: string | number;
+  cardIds: (string | number)[];
+  isComplete?: boolean;
+}
+
+interface RawSnapshotCard {
+  id: string | number;
+  title: string;
+  description?: string | null;
+  columnId: string | number;
+  projectId: string | number;
+  assignedUserId?: string | number | null;
+  tags?: (string | number)[];
+  dueDate?: string | number | null;
+  createdAt?: string | number;
+  swimlaneId?: string | number | null;
+  isArchived?: boolean;
+}
+
+interface RawSnapshotTag {
+  id: string | number;
+  name: string;
+  color: string;
+  projectId: string | number;
+}
+
+interface RawSnapshotSwimlane {
+  id: string | number;
+  name: string;
+  projectId: string | number;
+  order?: string | number;
+}
+
+interface RawSnapshotUser {
+  id: string | number;
+  name: string;
+  isAdmin?: boolean;
+  isMasterAdmin?: boolean;
+}
+
+interface RawSnapshot {
+  projects?: RawSnapshotProject[];
+  users?: RawSnapshotUser[];
+  columns?: RawSnapshotColumn[];
+  cards?: RawSnapshotCard[];
+  tags?: RawSnapshotTag[];
+  swimlanes?: RawSnapshotSwimlane[];
+}
+
+export async function restoreFromSnapshot(
+  actor: backendInterface,
+  snapshotJson: string,
+  targetProjectId: bigint,
+  activeUserId: bigint,
+): Promise<SnapshotRestoreResult> {
+  const result: SnapshotRestoreResult = {
+    success: false,
+    errors: [],
+    warnings: [],
+    counts: {
+      columnsRestored: 0,
+      cardsRestored: 0,
+      tagsRestored: 0,
+      swimlanesRestored: 0,
+    },
+  };
+
+  let raw: RawSnapshot;
+  try {
+    raw = JSON.parse(snapshotJson) as RawSnapshot;
+  } catch {
+    result.errors.push("Snapshot data is corrupted — could not parse JSON.");
+    return result;
+  }
+
+  const targetProjectIdStr = targetProjectId.toString();
+  const snapProjects = raw.projects ?? [];
+
+  // Find the matching project in the snapshot — try by ID first, then by name, then single-project fallback
+  let snapProject: RawSnapshotProject | undefined = snapProjects.find(
+    (p) => String(p.id) === targetProjectIdStr,
+  );
+
+  if (!snapProject) {
+    // Fallback 1: match by current project name
+    try {
+      const liveProjects = await actor.getProjects();
+      const liveProject = liveProjects.find((p) => p.id === targetProjectId);
+      if (liveProject) {
+        const liveNameLower = liveProject.name.toLowerCase();
+        snapProject = snapProjects.find(
+          (p) => (p.name ?? "").toLowerCase() === liveNameLower,
+        );
+        if (snapProject) {
+          result.warnings.push(
+            `Project ID mismatch — matched snapshot project "${snapProject.name}" by name instead of ID.`,
+          );
+        }
+      }
+    } catch {
+      // getProjects failed — continue to next fallback
+    }
+  }
+
+  if (!snapProject && snapProjects.length === 1) {
+    // Fallback 2: only one project in snapshot — use it
+    snapProject = snapProjects[0];
+    result.warnings.push(
+      `Project ID mismatch — restored from the only project found in the snapshot ("${snapProject.name}").`,
+    );
+  }
+
+  if (!snapProject) {
+    result.errors.push(
+      `Could not find a matching project in this snapshot. The snapshot contains ${snapProjects.length} project(s) but none matched the active project by ID or name. Make sure you are restoring a snapshot taken for this project.`,
+    );
+    return result;
+  }
+
+  // Use the snapshot project's own ID for filtering related records
+  const snapProjectIdStr = String(snapProject.id);
+
+  try {
+    // ── STEP 1: Wipe existing project data ─────────────────────────────────
+    const [existingColumns, existingTags, existingPresets, existingSwimlanes] =
+      await Promise.all([
+        actor.getColumns(targetProjectId).catch(() => []),
+        actor.getProjectTags(targetProjectId).catch(() => []),
+        actor.getFilterPresets(targetProjectId).catch(() => []),
+        actor.getSwimlanes(targetProjectId).catch(() => []),
+      ]);
+
+    // Delete columns (cascades cards on backend)
+    await Promise.all(
+      existingColumns.map((col) =>
+        actor.deleteColumn(col.id, activeUserId).catch((e: unknown) => {
+          result.warnings.push(
+            `Could not delete column "${col.name}": ${String(e)}`,
+          );
+        }),
+      ),
+    );
+
+    // Delete tags
+    await Promise.all(
+      existingTags.map((tag) =>
+        actor.deleteTag(tag.id, activeUserId).catch((e: unknown) => {
+          result.warnings.push(
+            `Could not delete tag "${tag.name}": ${String(e)}`,
+          );
+        }),
+      ),
+    );
+
+    // Delete filter presets
+    await Promise.all(
+      existingPresets.map((preset) =>
+        actor
+          .deleteFilterPreset(preset.id, activeUserId)
+          .catch((e: unknown) => {
+            result.warnings.push(
+              `Could not delete preset "${preset.name}": ${String(e)}`,
+            );
+          }),
+      ),
+    );
+
+    // Delete swimlanes
+    await Promise.all(
+      existingSwimlanes.map((sl) =>
+        actor.deleteSwimlane(sl.id, activeUserId).catch((e: unknown) => {
+          result.warnings.push(
+            `Could not delete swimlane "${sl.name}": ${String(e)}`,
+          );
+        }),
+      ),
+    );
+
+    // ── STEP 2: Restore tags ────────────────────────────────────────────────
+    // Maps old snapshot tag ID → new backend tag ID
+    const tagIdMap = new Map<string, bigint>();
+
+    const snapTags = (raw.tags ?? []).filter(
+      (t) => String(t.projectId) === snapProjectIdStr,
+    );
+
+    for (const tag of snapTags) {
+      try {
+        const newTagId = await actor.createTag(
+          targetProjectId,
+          tag.name ?? "Tag",
+          tag.color ?? "#94a3b8",
+          activeUserId,
+        );
+        tagIdMap.set(String(tag.id), newTagId);
+        result.counts.tagsRestored++;
+      } catch (e) {
+        result.warnings.push(
+          `Could not restore tag "${tag.name}": ${String(e)}`,
+        );
+      }
+    }
+
+    // ── STEP 3: Restore swimlanes ───────────────────────────────────────────
+    const swimlaneIdMap = new Map<string, bigint>();
+
+    const snapSwimlanes = (raw.swimlanes ?? []).filter(
+      (sl) => String(sl.projectId) === snapProjectIdStr,
+    );
+
+    for (const sl of snapSwimlanes) {
+      try {
+        const newSlId = await actor.createSwimlane(
+          targetProjectId,
+          sl.name ?? "Lane",
+          activeUserId,
+        );
+        swimlaneIdMap.set(String(sl.id), newSlId);
+        result.counts.swimlanesRestored++;
+      } catch (e) {
+        result.warnings.push(
+          `Could not restore swimlane "${sl.name}": ${String(e)}`,
+        );
+      }
+    }
+
+    // Restore swimlanes enabled state
+    if (snapProject.swimlanesEnabled && swimlaneIdMap.size > 0) {
+      await actor
+        .enableSwimlanes(targetProjectId, activeUserId)
+        .catch(() => {});
+    }
+
+    // ── STEP 4: Restore users (ensure they exist; match by name) ───────────
+    // Build a name → ID map for existing users
+    const existingUsers = await actor.getUsers().catch(() => []);
+    const userIdMap = new Map<string, bigint>(); // old snap ID → backend ID
+
+    const snapUsers = raw.users ?? [];
+    for (const su of snapUsers) {
+      const existing = existingUsers.find(
+        (u) => u.name.toLowerCase() === (su.name ?? "").toLowerCase(),
+      );
+      if (existing) {
+        userIdMap.set(String(su.id), existing.id);
+      }
+      // Note: we don't create users from snapshots — they already exist in the system
+    }
+
+    // ── STEP 5: Restore columns (maintaining order from cardIds order) ──────
+    const columnIdMap = new Map<string, bigint>(); // old snap col ID → new backend col ID
+
+    const snapColumns = (raw.columns ?? []).filter(
+      (c) => String(c.projectId) === snapProjectIdStr,
+    );
+
+    for (const col of snapColumns) {
+      try {
+        const newColId = await actor.createColumn(
+          col.name ?? "Column",
+          activeUserId,
+          targetProjectId,
+        );
+        columnIdMap.set(String(col.id), newColId);
+        result.counts.columnsRestored++;
+
+        // Set complete flag if applicable
+        if (col.isComplete) {
+          await actor
+            .setColumnComplete(newColId, true, activeUserId)
+            .catch(() => {});
+        }
+      } catch (e) {
+        result.errors.push(
+          `Failed to restore column "${col.name}": ${String(e)}`,
+        );
+      }
+    }
+
+    // ── STEP 6: Restore cards in column order ───────────────────────────────
+    // Process each column in snapshot order, placing cards by their cardIds order
+    for (const col of snapColumns) {
+      const newColId = columnIdMap.get(String(col.id));
+      if (!newColId) continue;
+
+      // Get cards for this column in order (using the cardIds array from the column)
+      const orderedCardIds = (col.cardIds ?? []).map(String);
+
+      // Build a map of snapshot card data
+      const cardDataMap = new Map<string, RawSnapshotCard>();
+      for (const card of raw.cards ?? []) {
+        cardDataMap.set(String(card.id), card);
+      }
+
+      for (const snapCardId of orderedCardIds) {
+        const card = cardDataMap.get(snapCardId);
+        if (!card) continue;
+        if (String(card.projectId) !== snapProjectIdStr) continue;
+
+        try {
+          const newCardId = await actor.createCard(
+            card.title ?? "Untitled",
+            card.description ?? null,
+            newColId,
+            activeUserId,
+            targetProjectId,
+          );
+          result.counts.cardsRestored++;
+
+          // Assign user
+          if (card.assignedUserId != null) {
+            const newUserId = userIdMap.get(String(card.assignedUserId));
+            if (newUserId) {
+              await actor
+                .assignCard(newCardId, newUserId, activeUserId)
+                .catch(() => {});
+            }
+          }
+
+          // Apply tags
+          if (Array.isArray(card.tags) && card.tags.length > 0) {
+            const mappedTagIds = (card.tags as (string | number)[])
+              .map((tid) => tagIdMap.get(String(tid)))
+              .filter((id): id is bigint => id !== undefined);
+            if (mappedTagIds.length > 0) {
+              await actor
+                .updateCardTags(newCardId, mappedTagIds, activeUserId)
+                .catch(() => {});
+            }
+          }
+
+          // Apply due date
+          if (card.dueDate != null) {
+            const dueDateVal = Number(card.dueDate);
+            if (!Number.isNaN(dueDateVal) && dueDateVal > 0) {
+              await actor
+                .updateCardDueDate(newCardId, BigInt(dueDateVal), activeUserId)
+                .catch(() => {});
+            }
+          }
+
+          // Apply swimlane
+          if (card.swimlaneId != null) {
+            const newSlId = swimlaneIdMap.get(String(card.swimlaneId));
+            if (newSlId) {
+              await actor
+                .updateCardSwimlane(newCardId, newSlId, activeUserId)
+                .catch(() => {});
+            }
+          }
+
+          // Archive if needed
+          if (card.isArchived) {
+            await actor.archiveCard(newCardId, activeUserId).catch(() => {});
+          }
+        } catch (e) {
+          result.errors.push(
+            `Failed to restore card "${card.title ?? "Untitled"}": ${String(e)}`,
+          );
+        }
+      }
+    }
+
+    result.success = result.errors.length === 0;
+  } catch (e) {
+    result.errors.push(`Unexpected restore error: ${String(e)}`);
+    result.success = false;
+  }
+
+  return result;
+}
+
 // ─── Export types ─────────────────────────────────────────────────────────────
 
 export interface ExportedCard {
@@ -74,6 +472,12 @@ export interface ExportedUser {
   isMasterAdmin: boolean;
 }
 
+export interface ExportedSwimlane {
+  id: string;
+  name: string;
+  active: boolean;
+}
+
 export interface ExportedProject {
   id: string;
   name: string;
@@ -81,6 +485,7 @@ export interface ExportedProject {
   tags: ExportedTag[];
   activity: ExportedRevision[];
   filterPresets: ExportedFilterPreset[];
+  swimlanes?: ExportedSwimlane[];
 }
 
 export interface KanbanExport {
@@ -106,6 +511,7 @@ export interface ImportResult {
     tagsImported: number;
     commentsImported: number;
     filterPresetsImported: number;
+    swimlanesImported: number;
   };
 }
 
@@ -117,15 +523,27 @@ export async function exportProjectToString(
   projectName: string,
 ): Promise<string> {
   // Fetch all top-level data in parallel
-  const [columns, cards, users, tags, revisions, filterPresets] =
-    await Promise.all([
-      actor.getColumns(projectId),
-      actor.getCards(projectId),
-      actor.getUsers(),
-      actor.getProjectTags(projectId),
-      actor.getRevisions(projectId),
-      actor.getFilterPresets(projectId),
-    ]);
+  const [
+    columns,
+    cards,
+    users,
+    tags,
+    revisions,
+    filterPresets,
+    swimlanesData,
+    projects,
+  ] = await Promise.all([
+    actor.getColumns(projectId),
+    actor.getCards(projectId),
+    actor.getUsers(),
+    actor.getProjectTags(projectId),
+    actor.getRevisions(projectId),
+    actor.getFilterPresets(projectId),
+    actor.getSwimlanes(projectId),
+    actor.getProjects(),
+  ]);
+
+  const currentProject = projects.find((p) => p.id === projectId);
 
   const userIdToName = new Map(users.map((u) => [u.id.toString(), u.name]));
   const cardMap = new Map(cards.map((c) => [c.id.toString(), c]));
@@ -224,6 +642,16 @@ export async function exportProjectToString(
     dateTo: p.dateTo,
   }));
 
+  // The `active` field is a project-level flag: true means swimlanes are enabled.
+  // All lanes get the same value so that re-importing the exported JSON restores
+  // the enabled/disabled state correctly.
+  const swimlanesAreEnabled = currentProject?.swimlanesEnabled ?? false;
+  const exportedSwimlanes: ExportedSwimlane[] = swimlanesData.map((sl) => ({
+    id: sl.id.toString(),
+    name: sl.name,
+    active: swimlanesAreEnabled,
+  }));
+
   const payload: KanbanExport = {
     _comment: {
       purpose:
@@ -239,6 +667,8 @@ export async function exportProjectToString(
         "Assignee stored by name (not ID) for readability. On import, matched case-insensitively against existing users; unmatched names are auto-created.",
       "project.cards.tags":
         "Array of tag IDs referencing the project.tags array.",
+      "project.swimlanes":
+        "Optional. Array of swimlane names. Set active:true to enable swimlanes on import. Set active:false to import the names without enabling swimlanes.",
       omittingFields:
         "Most fields are optional on import. Missing fields get defaults (empty string, empty list, null, false).",
       unknownFields:
@@ -263,6 +693,7 @@ export async function exportProjectToString(
       tags: exportedTags,
       activity: activityRevisions,
       filterPresets: exportedPresets,
+      swimlanes: exportedSwimlanes,
     },
   };
 
@@ -312,6 +743,7 @@ export async function importProject(
       tagsImported: 0,
       commentsImported: 0,
       filterPresetsImported: 0,
+      swimlanesImported: 0,
     },
   };
 
@@ -505,7 +937,69 @@ export async function importProject(
       }
     }
 
-    // ── 5. Import columns ──────────────────────────────────────────────────
+    // ── 5. Import swimlanes ────────────────────────────────────────────────
+    const importedSwimlanes: ExportedSwimlane[] = Array.isArray(
+      projectPayload.swimlanes,
+    )
+      ? (projectPayload.swimlanes as ExportedSwimlane[])
+      : [];
+
+    if (importedSwimlanes.length > 0) {
+      try {
+        const currentSwimlanes = await actor
+          .getSwimlanes(projectId)
+          .catch(() => []);
+        let shouldEnableSwimlanes = false;
+
+        for (const sl of importedSwimlanes) {
+          try {
+            const existing = currentSwimlanes.find(
+              (cs) => cs.name.toLowerCase() === (sl.name ?? "").toLowerCase(),
+            );
+            if (existing) {
+              if (importMode === "merge") {
+                result.warnings.push(
+                  `Swimlane "${sl.name}" already exists — skipped.`,
+                );
+              }
+              // Still check if we need to enable
+              if (sl.active) shouldEnableSwimlanes = true;
+            } else {
+              await actor.createSwimlane(
+                projectId,
+                sl.name ?? "Unnamed Swimlane",
+                activeUserId,
+              );
+              result.counts.swimlanesImported++;
+              if (sl.active) shouldEnableSwimlanes = true;
+            }
+          } catch (e) {
+            result.warnings.push(
+              `Could not import swimlane "${sl.name}": ${String(e)}`,
+            );
+          }
+        }
+
+        // Enable swimlanes if any imported lane had active:true
+        if (shouldEnableSwimlanes) {
+          await actor
+            .enableSwimlanes(projectId, activeUserId)
+            .catch((e: unknown) => {
+              result.warnings.push(`Could not enable swimlanes: ${String(e)}`);
+            });
+        }
+
+        if (result.counts.swimlanesImported > 0) {
+          result.warnings.push(
+            `${result.counts.swimlanesImported} swimlane(s) imported.`,
+          );
+        }
+      } catch (e) {
+        result.warnings.push(`Swimlane import failed: ${String(e)}`);
+      }
+    }
+
+    // ── 6. Import columns ──────────────────────────────────────────────────
     const columnIdMap = new Map<string, bigint>(); // original id -> new backend id
 
     const importedColumns: ExportedColumn[] = Array.isArray(

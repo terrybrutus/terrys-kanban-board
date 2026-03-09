@@ -660,61 +660,7 @@ const TUTORIAL_STEPS: TutorialStep[] = [
   },
 ];
 
-// ── Tutorial Callout Line ─────────────────────────────────────────────────────
-
-const CALLOUT_COLOR = "#1e40af"; // blue-800 — WCAG-compliant on light/beige backgrounds
-
-function TutorialCalloutLine({
-  fromX,
-  fromY,
-  toX,
-  toY,
-}: {
-  fromX: number;
-  fromY: number;
-  toX: number;
-  toY: number;
-}) {
-  return (
-    <svg
-      className="fixed inset-0 pointer-events-none"
-      style={{ zIndex: 9998, width: "100vw", height: "100vh" }}
-      aria-hidden="true"
-      role="presentation"
-    >
-      <line
-        x1={fromX}
-        y1={fromY}
-        x2={toX}
-        y2={toY}
-        stroke={CALLOUT_COLOR}
-        strokeWidth="2"
-        strokeDasharray="6 4"
-        opacity="0.9"
-      />
-      {/* Target dot — filled circle at the point being highlighted */}
-      <circle cx={toX} cy={toY} r="6" fill={CALLOUT_COLOR} opacity="0.95" />
-      {/* Pulsing ring around the target dot */}
-      <circle
-        cx={toX}
-        cy={toY}
-        r="12"
-        fill="none"
-        stroke={CALLOUT_COLOR}
-        strokeWidth="2"
-        opacity="0.4"
-      />
-      {/* Origin dot at tooltip edge */}
-      <circle cx={fromX} cy={fromY} r="4" fill={CALLOUT_COLOR} opacity="0.7" />
-    </svg>
-  );
-}
-
 // ── Tutorial Overlay ──────────────────────────────────────────────────────────
-
-const TOOLTIP_WIDTH = 320;
-const TOOLTIP_HEIGHT_ESTIMATE = 220; // used for positioning; actual height may vary
-const TOOLTIP_OFFSET = 66; // gap between tooltip and target element (increased for clarity)
 
 function TutorialOverlay({
   onClose,
@@ -724,143 +670,8 @@ function TutorialOverlay({
   forceOpen?: boolean;
 }) {
   const [step, setStep] = useState<null | number>(null); // null = intro screen
-  const tooltipRef = useRef<HTMLDialogElement>(null);
-  const [tooltipPos, setTooltipPos] = useState<{
-    top: number;
-    left: number;
-    placement: string;
-  } | null>(null);
-  const [targetCenter, setTargetCenter] = useState<{
-    x: number;
-    y: number;
-  } | null>(null);
-  const [targetRect, setTargetRect] = useState<DOMRect | null>(null);
 
   const currentStep = step !== null ? TUTORIAL_STEPS[step] : null;
-
-  // Elevate target element above the dim overlay so it's clearly visible
-  useEffect(() => {
-    if (step === null || !currentStep?.target) return;
-
-    const targetEl = document.querySelector<HTMLElement>(
-      `[data-tutorial="${currentStep.target}"]`,
-    );
-    if (!targetEl) return;
-
-    const originalPosition = targetEl.style.position;
-    const originalZIndex = targetEl.style.zIndex;
-    // Elevate target above dim overlay so it visually pops out
-    if (!targetEl.style.position || targetEl.style.position === "static") {
-      targetEl.style.position = "relative";
-    }
-    targetEl.style.zIndex = "9999";
-
-    return () => {
-      targetEl.style.position = originalPosition;
-      targetEl.style.zIndex = originalZIndex;
-    };
-  }, [step, currentStep]);
-
-  // Position tooltip relative to target element
-  useEffect(() => {
-    if (step === null || !currentStep?.target) {
-      setTooltipPos(null);
-      setTargetCenter(null);
-      setTargetRect(null);
-      return;
-    }
-
-    function updatePosition() {
-      const targetEl = document.querySelector(
-        `[data-tutorial="${currentStep!.target}"]`,
-      );
-      if (!targetEl) {
-        setTooltipPos(null);
-        setTargetCenter(null);
-        setTargetRect(null);
-        return;
-      }
-
-      const rect = targetEl.getBoundingClientRect();
-      setTargetRect(rect);
-      setTargetCenter({
-        x: rect.left + rect.width / 2,
-        y: rect.top + rect.height / 2,
-      });
-
-      const padding = 16;
-
-      const placement = currentStep!.placement ?? "bottom";
-      let top = 0;
-      let left = 0;
-
-      if (placement === "bottom") {
-        // Tooltip BELOW the target — offset far enough to not cover it
-        top = rect.bottom + TOOLTIP_OFFSET;
-        left = Math.max(
-          padding,
-          Math.min(
-            rect.left + rect.width / 2 - TOOLTIP_WIDTH / 2,
-            window.innerWidth - TOOLTIP_WIDTH - padding,
-          ),
-        );
-      } else if (placement === "top") {
-        // Tooltip ABOVE the target
-        top = rect.top - TOOLTIP_HEIGHT_ESTIMATE - TOOLTIP_OFFSET;
-        left = Math.max(
-          padding,
-          Math.min(
-            rect.left + rect.width / 2 - TOOLTIP_WIDTH / 2,
-            window.innerWidth - TOOLTIP_WIDTH - padding,
-          ),
-        );
-      } else if (placement === "right") {
-        // Tooltip to the RIGHT of the target
-        top = Math.max(
-          padding,
-          Math.min(
-            rect.top + rect.height / 2 - TOOLTIP_HEIGHT_ESTIMATE / 2,
-            window.innerHeight - TOOLTIP_HEIGHT_ESTIMATE - padding,
-          ),
-        );
-        left = rect.right + TOOLTIP_OFFSET;
-      } else if (placement === "left") {
-        // Tooltip to the LEFT of the target
-        top = Math.max(
-          padding,
-          Math.min(
-            rect.top + rect.height / 2 - TOOLTIP_HEIGHT_ESTIMATE / 2,
-            window.innerHeight - TOOLTIP_HEIGHT_ESTIMATE - padding,
-          ),
-        );
-        left = rect.left - TOOLTIP_WIDTH - TOOLTIP_OFFSET;
-      } else {
-        // center — position in viewport center
-        top = window.innerHeight / 2 - TOOLTIP_HEIGHT_ESTIMATE / 2;
-        left = window.innerWidth / 2 - TOOLTIP_WIDTH / 2;
-      }
-
-      // Clamp to viewport
-      top = Math.max(
-        padding,
-        Math.min(top, window.innerHeight - TOOLTIP_HEIGHT_ESTIMATE - padding),
-      );
-      left = Math.max(
-        padding,
-        Math.min(left, window.innerWidth - TOOLTIP_WIDTH - padding),
-      );
-
-      setTooltipPos({ top, left, placement });
-    }
-
-    updatePosition();
-    window.addEventListener("resize", updatePosition);
-    window.addEventListener("scroll", updatePosition, true);
-    return () => {
-      window.removeEventListener("resize", updatePosition);
-      window.removeEventListener("scroll", updatePosition, true);
-    };
-  }, [step, currentStep]);
 
   function handleSkip() {
     if (!forceOpen) {
@@ -908,7 +719,7 @@ function TutorialOverlay({
   if (step === null) {
     return (
       <div
-        className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/40 backdrop-blur-sm"
+        className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm"
         role="presentation"
         onClick={(e) => {
           if (e.target === e.currentTarget) handleSkip();
@@ -928,8 +739,7 @@ function TutorialOverlay({
               </h2>
               <p className="text-sm text-muted-foreground leading-relaxed">
                 This is a fully interactive Kanban board. The tutorial will walk
-                you through every feature by highlighting the actual UI elements
-                — {TUTORIAL_STEPS.length} steps total.
+                you through every feature — {TUTORIAL_STEPS.length} steps total.
               </p>
             </div>
             <div className="flex flex-col gap-2 pt-1">
@@ -951,165 +761,65 @@ function TutorialOverlay({
     );
   }
 
-  // ── Callout step ────────────────────────────────────────────────────────────
-  const hasTarget = !!targetCenter && currentStep?.placement !== "center";
-
-  // Compute tooltip anchor point for the callout line.
-  // The line starts from the CENTER of the edge of the tooltip closest to the target.
-  const tooltipAnchor =
-    tooltipPos && hasTarget
-      ? (() => {
-          const placement = tooltipPos.placement;
-          if (placement === "bottom") {
-            // Tooltip is below the target → line starts from the TOP center of tooltip
-            return {
-              x: tooltipPos.left + TOOLTIP_WIDTH / 2,
-              y: tooltipPos.top,
-            };
-          }
-          if (placement === "top") {
-            // Tooltip is above the target → line starts from the BOTTOM center of tooltip
-            return {
-              x: tooltipPos.left + TOOLTIP_WIDTH / 2,
-              y: tooltipPos.top + TOOLTIP_HEIGHT_ESTIMATE,
-            };
-          }
-          if (placement === "right") {
-            // Tooltip is to the right of the target → line starts from the LEFT center of tooltip
-            return {
-              x: tooltipPos.left,
-              y: tooltipPos.top + TOOLTIP_HEIGHT_ESTIMATE / 2,
-            };
-          }
-          if (placement === "left") {
-            // Tooltip is to the left of the target → line starts from the RIGHT center of tooltip
-            return {
-              x: tooltipPos.left + TOOLTIP_WIDTH,
-              y: tooltipPos.top + TOOLTIP_HEIGHT_ESTIMATE / 2,
-            };
-          }
-          return null;
-        })()
-      : null;
-
+  // ── Tutorial step view — centered modal over dimmed/blurred board ────────────
   return (
-    <>
-      {/* Full-screen semi-transparent dimming overlay */}
-      <div
-        className="fixed inset-0 z-40 pointer-events-none"
-        style={{ background: "rgba(0,0,0,0.5)" }}
-      />
-
-      {/* Target highlight ring — z-index 9997, sits under the elevated target element (9999) */}
-      {hasTarget && targetRect && (
-        <div
-          className="fixed pointer-events-none"
-          style={{
-            zIndex: 9997,
-            top: targetRect.top - 6,
-            left: targetRect.left - 6,
-            width: targetRect.width + 12,
-            height: targetRect.height + 12,
-            outline: `3px solid ${CALLOUT_COLOR}`,
-            outlineOffset: "0px",
-            borderRadius: "10px",
-            boxShadow: `0 0 0 6px ${CALLOUT_COLOR}33, 0 0 20px ${CALLOUT_COLOR}40`,
-            transition: "all 300ms ease",
-          }}
-        />
-      )}
-
-      {/* Callout line from tooltip to target */}
-      {hasTarget && tooltipAnchor && targetCenter && (
-        <TutorialCalloutLine
-          fromX={tooltipAnchor.x}
-          fromY={tooltipAnchor.y}
-          toX={targetCenter.x}
-          toY={targetCenter.y}
-        />
-      )}
-
-      {/* Click-through backdrop for skipping via outside click */}
-      <div
-        className="fixed inset-0 z-40"
-        style={{ pointerEvents: "all" }}
-        onClick={handleSkip}
-        onKeyDown={(e) => {
-          if (e.key === "Escape") handleSkip();
-        }}
-        role="presentation"
-      />
-
-      {/* Tooltip panel — z-50 sits above everything including the elevated target */}
+    <div
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm"
+      aria-hidden="true"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) handleSkip();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") handleSkip();
+      }}
+    >
       <dialog
-        ref={tooltipRef}
         open
-        className="fixed z-50 m-0 w-80 rounded-2xl border-2 bg-card shadow-2xl overflow-hidden p-0"
-        style={
-          tooltipPos
-            ? {
-                top: tooltipPos.top,
-                left: tooltipPos.left,
-                borderColor: CALLOUT_COLOR,
-              }
-            : {
-                top: "50%",
-                left: "50%",
-                transform: "translate(-50%, -50%)",
-                borderColor: CALLOUT_COLOR,
-              }
-        }
+        className="w-full max-w-md mx-4 rounded-2xl border border-border bg-card shadow-2xl overflow-hidden p-0 m-0 static"
+        aria-label="Tutorial step"
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => e.stopPropagation()}
-        aria-label="Tutorial step"
       >
         {/* Progress bar at top */}
         <div className="h-1 w-full bg-secondary">
           <div
-            className="h-full col-accent-0 col-accent-bar transition-all duration-300"
+            className="h-full bg-blue-600 transition-all duration-300"
             style={{ width: `${((step + 1) / TUTORIAL_STEPS.length) * 100}%` }}
           />
         </div>
 
-        <div className="px-5 py-4 space-y-3">
-          <div className="flex items-start justify-between gap-3">
-            <div className="space-y-0.5">
-              <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
-                Step {step + 1} of {TUTORIAL_STEPS.length}
-              </p>
-              <h2 className="font-display font-bold text-base text-foreground leading-tight">
-                {currentStep?.title}
-              </h2>
-            </div>
-            <button
-              type="button"
-              onClick={handleSkip}
-              className="h-6 w-6 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors shrink-0"
-              title="Close tutorial"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          </div>
+        <div className="px-8 py-6 space-y-4">
+          {/* Step counter */}
+          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+            Step {step + 1} of {TUTORIAL_STEPS.length}
+          </p>
 
-          <p className="text-xs text-muted-foreground leading-relaxed">
+          {/* Title */}
+          <h2 className="font-display font-bold text-xl text-foreground leading-tight">
+            {currentStep?.title}
+          </h2>
+
+          {/* Body */}
+          <p className="text-sm text-muted-foreground leading-relaxed">
             {currentStep?.body}
           </p>
 
-          <div className="flex items-center justify-between pt-1 gap-2">
+          {/* Navigation row */}
+          <div className="flex items-center justify-between pt-2">
             <button
               type="button"
               onClick={handleSkip}
-              className="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+              className="text-xs text-muted-foreground hover:text-foreground transition-colors"
             >
               Exit tutorial
             </button>
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-2">
               {step > 0 && (
                 <Button
                   size="sm"
                   variant="ghost"
                   onClick={handlePrev}
-                  className="h-7 text-xs px-2.5"
+                  className="h-8 text-xs px-3"
                 >
                   Back
                 </Button>
@@ -1117,7 +827,7 @@ function TutorialOverlay({
               <Button
                 size="sm"
                 onClick={handleNext}
-                className="h-7 text-xs px-3 gap-1"
+                className="h-8 text-xs px-4 gap-1"
               >
                 {step < TUTORIAL_STEPS.length - 1 ? "Next →" : "Finish ✓"}
               </Button>
@@ -1133,7 +843,7 @@ function TutorialOverlay({
                 onClick={() => setStep(i)}
                 className={`rounded-full transition-all ${
                   i === step
-                    ? "w-4 h-1.5 col-accent-0 col-accent-bar"
+                    ? "w-4 h-1.5 bg-blue-600"
                     : "w-1.5 h-1.5 bg-secondary hover:bg-secondary/80"
                 }`}
                 title={`Go to step ${i + 1}: ${tutStep.title}`}
@@ -1142,7 +852,7 @@ function TutorialOverlay({
           </div>
         </div>
       </dialog>
-    </>
+    </div>
   );
 }
 

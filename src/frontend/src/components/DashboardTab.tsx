@@ -466,22 +466,18 @@ export default function DashboardTab({
                     onClick={() =>
                       onApplyFilter({ tagIds: [tag.id.toString()] })
                     }
-                    className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium border transition-all hover:opacity-80 hover:scale-105"
+                    className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium border transition-all hover:opacity-85 hover:scale-105"
                     style={{
-                      backgroundColor: `${tag.color}20`,
-                      color: tag.color,
-                      borderColor: `${tag.color}40`,
+                      backgroundColor: tag.color,
+                      color: "#ffffff",
+                      borderColor: tag.color,
                     }}
                     title="Click to filter by this tag"
                   >
-                    <span
-                      className="h-2 w-2 rounded-full shrink-0"
-                      style={{ backgroundColor: tag.color }}
-                    />
                     {tag.name}
                     <span
                       className="inline-flex items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-bold"
-                      style={{ backgroundColor: `${tag.color}30` }}
+                      style={{ backgroundColor: "rgba(0,0,0,0.2)" }}
                     >
                       {count.toString()}
                     </span>

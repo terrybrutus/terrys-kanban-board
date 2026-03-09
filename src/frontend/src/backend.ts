@@ -116,6 +116,12 @@ export interface Comment {
     timestamp: bigint;
     cardId: bigint;
 }
+export interface SnapshotMeta {
+    id: bigint;
+    takenByName: string;
+    takenAt: bigint;
+    snapshotLabel: string;
+}
 export interface Card {
     id: bigint;
     title: string;
@@ -152,6 +158,15 @@ export interface Project {
     name: string;
     swimlanesEnabled: boolean;
 }
+export interface Revision {
+    id: bigint;
+    actorName: string;
+    description: string;
+    projectId: bigint;
+    timestamp: bigint;
+    cardId?: bigint;
+    revisionType: string;
+}
 export interface FilterPreset {
     id: bigint;
     dateTo: string;
@@ -164,15 +179,6 @@ export interface FilterPreset {
     unassignedOnly: boolean;
     dateFrom: string;
     dateField?: string;
-}
-export interface Revision {
-    id: bigint;
-    actorName: string;
-    description: string;
-    projectId: bigint;
-    timestamp: bigint;
-    cardId?: bigint;
-    revisionType: string;
 }
 export interface ProjectSummary {
     unassignedCount: bigint;
@@ -200,6 +206,7 @@ export interface backendInterface {
     deleteComment(commentId: bigint, actorUserId: bigint): Promise<void>;
     deleteFilterPreset(presetId: bigint, actorUserId: bigint): Promise<void>;
     deleteProject(projectId: bigint, actorUserId: bigint): Promise<void>;
+    deleteSnapshot(snapshotId: bigint, actorUserId: bigint): Promise<void>;
     deleteSwimlane(swimlaneId: bigint, actorUserId: bigint): Promise<void>;
     deleteTag(tagId: bigint, actorUserId: bigint): Promise<void>;
     deleteUser(userId: bigint, actorUserId: bigint): Promise<void>;
@@ -218,8 +225,11 @@ export interface backendInterface {
     getProjectTags(projectId: bigint): Promise<Array<Tag>>;
     getProjects(): Promise<Array<Project>>;
     getRevisions(projectId: bigint): Promise<Array<Revision>>;
+    getSnapshot(snapshotId: bigint): Promise<string | null>;
+    getSnapshots(): Promise<Array<SnapshotMeta>>;
     getSwimlanes(projectId: bigint): Promise<Array<Swimlane>>;
     getUsers(): Promise<Array<User>>;
+    grantSnapshotAccess(userId: bigint, actorUserId: bigint): Promise<void>;
     initBoard(): Promise<void>;
     initDefaultProject(): Promise<bigint>;
     isAdminSetup(): Promise<boolean>;
@@ -237,11 +247,13 @@ export interface backendInterface {
     resetMasterAdminPinWithSecurityAnswer(answerHash: string, newPinHash: string): Promise<boolean>;
     resetUserPin(userId: bigint, actorUserId: bigint, newPinHash: string): Promise<void>;
     restoreCard(cardId: bigint, actorUserId: bigint): Promise<void>;
+    revokeSnapshotAccess(userId: bigint, actorUserId: bigint): Promise<void>;
     saveFilterPreset(projectId: bigint, createdByUserId: bigint, name: string, assigneeId: bigint | null, tagIds: Array<bigint>, unassignedOnly: boolean, textSearch: string, dateField: string | null, dateFrom: string, dateTo: string): Promise<bigint>;
     setAccessKey(newKey: string, actorUserId: bigint): Promise<void>;
     setColumnComplete(columnId: bigint, isComplete: boolean, actorUserId: bigint): Promise<void>;
     setMasterAdminSecurityQuestion(question: string, answerHash: string, actorUserId: bigint): Promise<void>;
     setupMasterAdmin(name: string, pinHash: string): Promise<bigint>;
+    takeSnapshot(snapshotLabel: string, actorUserId: bigint): Promise<bigint>;
     updateCard(cardId: bigint, title: string, description: string | null, actorUserId: bigint): Promise<void>;
     updateCardDueDate(cardId: bigint, dueDate: bigint | null, actorUserId: bigint): Promise<void>;
     updateCardSwimlane(cardId: bigint, swimlaneId: bigint | null, actorUserId: bigint): Promise<void>;
@@ -504,6 +516,20 @@ export class Backend implements backendInterface {
             return result;
         }
     }
+    async deleteSnapshot(arg0: bigint, arg1: bigint): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.deleteSnapshot(arg0, arg1);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.deleteSnapshot(arg0, arg1);
+            return result;
+        }
+    }
     async deleteSwimlane(arg0: bigint, arg1: bigint): Promise<void> {
         if (this.processError) {
             try {
@@ -756,6 +782,34 @@ export class Backend implements backendInterface {
             return from_candid_vec_n9(this._uploadFile, this._downloadFile, result);
         }
     }
+    async getSnapshot(arg0: bigint): Promise<string | null> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getSnapshot(arg0);
+                return from_candid_opt_n7(this._uploadFile, this._downloadFile, result);
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getSnapshot(arg0);
+            return from_candid_opt_n7(this._uploadFile, this._downloadFile, result);
+        }
+    }
+    async getSnapshots(): Promise<Array<SnapshotMeta>> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getSnapshots();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getSnapshots();
+            return result;
+        }
+    }
     async getSwimlanes(arg0: bigint): Promise<Array<Swimlane>> {
         if (this.processError) {
             try {
@@ -782,6 +836,20 @@ export class Backend implements backendInterface {
         } else {
             const result = await this.actor.getUsers();
             return from_candid_vec_n15(this._uploadFile, this._downloadFile, result);
+        }
+    }
+    async grantSnapshotAccess(arg0: bigint, arg1: bigint): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.grantSnapshotAccess(arg0, arg1);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.grantSnapshotAccess(arg0, arg1);
+            return result;
         }
     }
     async initBoard(): Promise<void> {
@@ -1022,6 +1090,20 @@ export class Backend implements backendInterface {
             return result;
         }
     }
+    async revokeSnapshotAccess(arg0: bigint, arg1: bigint): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.revokeSnapshotAccess(arg0, arg1);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.revokeSnapshotAccess(arg0, arg1);
+            return result;
+        }
+    }
     async saveFilterPreset(arg0: bigint, arg1: bigint, arg2: string, arg3: bigint | null, arg4: Array<bigint>, arg5: boolean, arg6: string, arg7: string | null, arg8: string, arg9: string): Promise<bigint> {
         if (this.processError) {
             try {
@@ -1089,6 +1171,20 @@ export class Backend implements backendInterface {
             }
         } else {
             const result = await this.actor.setupMasterAdmin(arg0, arg1);
+            return result;
+        }
+    }
+    async takeSnapshot(arg0: string, arg1: bigint): Promise<bigint> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.takeSnapshot(arg0, arg1);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.takeSnapshot(arg0, arg1);
             return result;
         }
     }

@@ -10,7 +10,7 @@ import Runtime "mo:core/Runtime";
 import Iter "mo:core/Iter";
 
 
-// Use migration module for seamless upgrade
+
 
 actor {
   ///////////////////////////
@@ -155,6 +155,21 @@ actor {
     tagCounts : [(Nat, Nat)];
   };
 
+  type SnapshotMeta = {
+    id : Nat;
+    snapshotLabel : Text;
+    takenAt : Int;
+    takenByName : Text;
+  };
+
+  type Snapshot = {
+    id : Nat;
+    snapshotLabel : Text;
+    takenAt : Int;
+    takenByName : Text;
+    data : Text;
+  };
+
   ///////////////////////////
   // State
   ///////////////////////////
@@ -169,6 +184,8 @@ actor {
   let filterPresets = Map.empty<Nat, FilterPreset>();
   let swimlanes = Map.empty<Nat, Swimlane>();
   let checklists = Map.empty<Nat, ChecklistItem>();
+  let snapshots = Map.empty<Nat, Snapshot>();
+  let snapshotAccessList = Map.empty<Nat, Bool>();
 
   var nextProjectId = 1;
   var nextUserId = 1;
@@ -180,6 +197,7 @@ actor {
   var nextFilterPresetId = 1;
   var nextSwimlaneId = 1;
   var nextChecklistItemId = 1;
+  var nextSnapshotId = 1;
 
   var accessKey = "admin123";
 
@@ -244,6 +262,353 @@ actor {
     };
     columns.add(nextColumnId, column);
     nextColumnId += 1;
+  };
+
+  ///////////////////////////
+  // Snapshot Management
+  ///////////////////////////
+
+  public shared ({ caller }) func takeSnapshot(snapshotLabel : Text, actorUserId : Nat) : async Nat {
+    if (not isMasterAdmin(actorUserId) and not hasSnapshotAccess(actorUserId)) {
+      Runtime.trap("Not authorized to take snapshots");
+    };
+
+    let snapshotId = nextSnapshotId;
+
+    let snapshotData = serializeToJson();
+
+    let snapshot : Snapshot = {
+      id = snapshotId;
+      snapshotLabel;
+      takenAt = Time.now();
+      takenByName = getUserName(actorUserId);
+      data = snapshotData;
+    };
+
+    snapshots.add(snapshotId, snapshot);
+    nextSnapshotId += 1;
+
+    enforceSnapshotRetention();
+
+    snapshotId;
+  };
+
+  func serializeToJson() : Text {
+    let projectJson = serializeProjects();
+    let userJson = serializeUsers();
+    let columnJson = serializeColumns();
+    let cardJson = serializeCards();
+    let tagJson = serializeTags();
+    let revisionJson = serializeRevisions();
+    let commentJson = serializeComments();
+    let presetJson = serializeFilterPresets();
+    let swimlaneJson = serializeSwimlanes();
+    let checklistJson = serializeChecklists();
+
+    "{" #
+    "\"projects\": " # projectJson # "," #
+    "\"users\": " # userJson # "," #
+    "\"columns\": " # columnJson # "," #
+    "\"cards\": " # cardJson # "," #
+    "\"tags\": " # tagJson # "," #
+    "\"revisions\": " # revisionJson # "," #
+    "\"comments\": " # commentJson # "," #
+    "\"filterPresets\": " # presetJson # "," #
+    "\"swimlanes\": " # swimlaneJson # "," #
+    "\"checklists\": " # checklistJson #
+    "}";
+  };
+
+  func serializeProjects() : Text {
+    let projectArray = projects.values().toArray().map(serializeProject);
+    toJsonArrayText(projectArray);
+  };
+
+  func serializeProject(p : Project) : Text {
+    "{" #
+    "\"id\": " # p.id.toText() # "," #
+    "\"name\": \"" # p.name # "\"," #
+    "\"swimlanesEnabled\": " # toLowerText(p.swimlanesEnabled.toText()) #
+    "}";
+  };
+
+  func serializeUsers() : Text {
+    let userArray = users.values().toArray().map(serializeUser);
+    toJsonArrayText(userArray);
+  };
+
+  func serializeUser(u : User) : Text {
+    "{" #
+    "\"id\": " # u.id.toText() # "," #
+    "\"name\": \"" # u.name # "\"," #
+    "\"isAdmin\": " # toLowerText(u.isAdmin.toText()) # "," #
+    "\"isMasterAdmin\": " # toLowerText(u.isMasterAdmin.toText()) # "," #
+    "\"securityQuestion\": " # serializeNullableText(u.securityQuestion) #
+    "}";
+  };
+
+  func serializeColumns() : Text {
+    let columnArray = columns.values().toArray().map(serializeColumn);
+    toJsonArrayText(columnArray);
+  };
+
+  func serializeColumn(c : Column) : Text {
+    "{" #
+    "\"id\": " # c.id.toText() # "," #
+    "\"name\": \"" # c.name # "\"," #
+    "\"projectId\": " # c.projectId.toText() # "," #
+    "\"cardIds\": " # serializeCardIds(c.cardIds) # "," #
+    "\"isComplete\": " # toLowerText(c.isComplete.toText()) #
+    "}";
+  };
+
+  func serializeCardIds(cardIds : List.List<Nat>) : Text {
+    let idArray = cardIds.values().toArray().map(func(id) { id.toText() });
+    toJsonArrayText(idArray);
+  };
+
+  func serializeCards() : Text {
+    let cardArray = cards.values().toArray().map(serializeCard);
+    toJsonArrayText(cardArray);
+  };
+
+  func serializeCard(c : Card) : Text {
+    "{" #
+    "\"id\": " # c.id.toText() # "," #
+    "\"title\": \"" # c.title # "\"," #
+    "\"description\": " # serializeNullableText(c.description) # "," #
+    "\"columnId\": " # c.columnId.toText() # "," #
+    "\"projectId\": " # c.projectId.toText() # "," #
+    "\"assignedUserId\": " # serializeNullableNat(c.assignedUserId) # "," #
+    "\"tags\": " # serializeTagsArray(c.tags) # "," #
+    "\"dueDate\": " # serializeNullableInt(c.dueDate) # "," #
+    "\"createdAt\": " # c.createdAt.toText() # "," #
+    "\"swimlaneId\": " # serializeNullableNat(c.swimlaneId) # "," #
+    "\"isArchived\": " # toLowerText(c.isArchived.toText()) # "," #
+    "\"archivedAt\": " # serializeNullableInt(c.archivedAt) #
+    "}";
+  };
+
+  func serializeTagsArray(tags : [Nat]) : Text {
+    let tagArray = tags.map(func(tag) { tag.toText() });
+    toJsonArrayText(tagArray);
+  };
+
+  func serializeTags() : Text {
+    let tagArray = tags.values().toArray().map(serializeTag);
+    toJsonArrayText(tagArray);
+  };
+
+  func serializeTag(tag : Tag) : Text {
+    "{" #
+    "\"id\": " # tag.id.toText() # "," #
+    "\"projectId\": " # tag.projectId.toText() # "," #
+    "\"name\": \"" # tag.name # "\"," #
+    "\"color\": \"" # tag.color # "\"" #
+    "}";
+  };
+
+  func serializeRevisions() : Text {
+    let revArray = revisions.values().toArray().map(serializeRevision);
+    toJsonArrayText(revArray);
+  };
+
+  func serializeRevision(rev : Revision) : Text {
+    "{" #
+    "\"id\": " # rev.id.toText() # "," #
+    "\"actorName\": \"" # rev.actorName # "\"," #
+    "\"timestamp\": " # rev.timestamp.toText() # "," #
+    "\"revisionType\": \"" # rev.revisionType # "\"," #
+    "\"description\": \"" # rev.description # "\"," #
+    "\"cardId\": " # serializeNullableNat(rev.cardId) # "," #
+    "\"projectId\": " # rev.projectId.toText() #
+    "}";
+  };
+
+  func serializeComments() : Text {
+    let commentArray = comments.values().toArray().map(serializeComment);
+    toJsonArrayText(commentArray);
+  };
+
+  func serializeComment(comment : Comment) : Text {
+    "{" #
+    "\"id\": " # comment.id.toText() # "," #
+    "\"cardId\": " # comment.cardId.toText() # "," #
+    "\"authorId\": " # comment.authorId.toText() # "," #
+    "\"authorName\": \"" # comment.authorName # "\"," #
+    "\"text\": \"" # comment.text # "\"," #
+    "\"timestamp\": " # comment.timestamp.toText() #
+    "}";
+  };
+
+  func serializeFilterPresets() : Text {
+    let presetArray = filterPresets.values().toArray().map(serializeFilterPreset);
+    toJsonArrayText(presetArray);
+  };
+
+  func serializeFilterPreset(preset : FilterPreset) : Text {
+    "{" #
+    "\"id\": " # preset.id.toText() # "," #
+    "\"projectId\": " # preset.projectId.toText() # "," #
+    "\"createdByUserId\": " # preset.createdByUserId.toText() # "," #
+    "\"name\": \"" # preset.name # "\"," #
+    "\"assigneeId\": " # serializeNullableNat(preset.assigneeId) # "," #
+    "\"tagIds\": " # serializeTagsArray(preset.tagIds) # "," #
+    "\"unassignedOnly\": " # toLowerText(preset.unassignedOnly.toText()) # "," #
+    "\"textSearch\": \"" # preset.textSearch # "\"," #
+    "\"dateField\": " # serializeNullableText(preset.dateField) # "," #
+    "\"dateFrom\": \"" # preset.dateFrom # "\"," #
+    "\"dateTo\": \"" # preset.dateTo # "\"" #
+    "}";
+  };
+
+  func serializeSwimlanes() : Text {
+    let swimlaneArray = swimlanes.values().toArray().map(serializeSwimlane);
+    toJsonArrayText(swimlaneArray);
+  };
+
+  func serializeSwimlane(swimlane : Swimlane) : Text {
+    "{" #
+    "\"id\": " # swimlane.id.toText() # "," #
+    "\"projectId\": " # swimlane.projectId.toText() # "," #
+    "\"name\": \"" # swimlane.name # "\"," #
+    "\"order\": " # swimlane.order.toText() #
+    "}";
+  };
+
+  func serializeChecklists() : Text {
+    let checklistArray = checklists.values().toArray().map(serializeChecklistItem);
+    toJsonArrayText(checklistArray);
+  };
+
+  func serializeChecklistItem(item : ChecklistItem) : Text {
+    "{" #
+    "\"id\": " # item.id.toText() # "," #
+    "\"cardId\": " # item.cardId.toText() # "," #
+    "\"text\": \"" # item.text # "\"," #
+    "\"isDone\": " # toLowerText(item.isDone.toText()) # "," #
+    "\"order\": " # item.order.toText() # "," #
+    "\"createdAt\": " # item.createdAt.toText() #
+    "}";
+  };
+
+  func toJsonArrayText(array : [Text]) : Text {
+    let iter = array.values();
+    let combined = switch (iter.size()) {
+      case (0) { "" };
+      case (size) {
+        var result = switch (iter.next()) {
+          case (null) { "" };
+          case (?first) { first };
+        };
+        let remaining = iter.toArray();
+        for (element in remaining.values()) {
+          result #= "," # element;
+        };
+        result;
+      };
+    };
+    "[" # combined # "]";
+  };
+
+  func serializeNullableNat(n : ?Nat) : Text {
+    switch (n) {
+      case (null) { "null" };
+      case (?value) { value.toText() };
+    };
+  };
+
+  func serializeNullableInt(n : ?Int) : Text {
+    switch (n) {
+      case (null) { "null" };
+      case (?value) { value.toText() };
+    };
+  };
+
+  func serializeNullableText(t : ?Text) : Text {
+    switch (t) {
+      case (null) { "null" };
+      case (?value) { "\"" # value # "\"" };
+    };
+  };
+
+  func toLowerText(t : Text) : Text {
+    if (t == "True") { "true" } else if (t == "False") { "false" } else { t };
+  };
+
+  func enforceSnapshotRetention() {
+    let allSnapshots = snapshots.values().toArray();
+    let snapshotCount = allSnapshots.size();
+
+    if (snapshotCount > 30) {
+      let sortedSnapshots = allSnapshots.sort(
+        func(a, b) { Int.compare(a.takenAt, b.takenAt) }
+      );
+      let sortedSnapshotsSize = sortedSnapshots.size();
+      if (sortedSnapshotsSize > 0) {
+        let oldestSnapshot = sortedSnapshots[sortedSnapshotsSize - 1];
+        snapshots.remove(oldestSnapshot.id);
+      };
+    };
+
+    let currentTime = Time.now();
+    let sixMonthsNanos = 15768000000000000;
+    for (snapshot in allSnapshots.values()) {
+      if (currentTime - snapshot.takenAt > sixMonthsNanos) {
+        snapshots.remove(snapshot.id);
+      };
+    };
+  };
+
+  func hasSnapshotAccess(userId : Nat) : Bool {
+    switch (snapshotAccessList.get(userId)) {
+      case (null) { false };
+      case (?access) { access };
+    };
+  };
+
+  public query ({ caller }) func getSnapshots() : async [SnapshotMeta] {
+    let metaArray = snapshots.values().toArray().map(func(snapshot) { { id = snapshot.id; snapshotLabel = snapshot.snapshotLabel; takenAt = snapshot.takenAt; takenByName = snapshot.takenByName } });
+
+    metaArray.sort(
+      func(a, b) { Int.compare(b.takenAt, a.takenAt) }
+    );
+  };
+
+  public query ({ caller }) func getSnapshot(snapshotId : Nat) : async ?Text {
+    switch (snapshots.get(snapshotId)) {
+      case (null) { null };
+      case (?snapshot) { ?snapshot.data };
+    };
+  };
+
+  public shared ({ caller }) func deleteSnapshot(snapshotId : Nat, actorUserId : Nat) : async () {
+    if (not isMasterAdmin(actorUserId)) {
+      Runtime.trap("Only master admin can delete snapshots");
+    };
+
+    switch (snapshots.get(snapshotId)) {
+      case (null) { Runtime.trap("Snapshot not found") };
+      case (?_) {
+        snapshots.remove(snapshotId);
+      };
+    };
+  };
+
+  public shared ({ caller }) func grantSnapshotAccess(userId : Nat, actorUserId : Nat) : async () {
+    if (not isMasterAdmin(actorUserId)) {
+      Runtime.trap("Only master admin can grant snapshot access");
+    };
+
+    snapshotAccessList.add(userId, true);
+  };
+
+  public shared ({ caller }) func revokeSnapshotAccess(userId : Nat, actorUserId : Nat) : async () {
+    if (not isMasterAdmin(actorUserId)) {
+      Runtime.trap("Only master admin can revoke snapshot access");
+    };
+
+    snapshotAccessList.add(userId, false);
   };
 
   ///////////////////////////
@@ -396,7 +761,6 @@ actor {
     switch (projects.get(projectId)) {
       case (null) { Runtime.trap("Project not found") };
       case (?project) {
-        // Remove columns associated with the project
         let columnsToRemove = columns.toArray().filter(
           func((_, column)) { column.projectId == projectId }
         );
@@ -405,7 +769,6 @@ actor {
           columns.remove(elem.0);
         };
 
-        // Remove cards associated with the project
         let cardsToRemove = cards.toArray().filter(
           func((_, card)) { card.projectId == projectId }
         );
@@ -414,7 +777,6 @@ actor {
           cards.remove(elem.0);
         };
 
-        // Remove tags associated with the project
         let tagsToRemove = tags.toArray().filter(
           func((_, tag)) { tag.projectId == projectId }
         );
@@ -438,7 +800,6 @@ actor {
 
   public shared ({ caller }) func initDefaultProject() : async Nat {
     if (projects.isEmpty()) {
-      // Create new default project
       let projectId = nextProjectId;
       let newProject : Project = {
         id = projectId;
@@ -452,7 +813,6 @@ actor {
 
       projectId;
     } else {
-      // Get the first project's id
       let allProjects = projects.values().toArray();
       let firstProject = allProjects[0];
       firstProject.id;
@@ -995,7 +1355,6 @@ actor {
       case (?tag) {
         tags.remove(tagId);
 
-        // Remove tag from all cards
         for ((cardId, card) in cards.entries()) {
           let newTags = card.tags.filter(func(t) { t != tagId });
           cards.add(cardId, { card with tags = newTags });
@@ -1022,7 +1381,6 @@ actor {
       case (?card) {
         cards.add(cardId, { card with tags = tagIds });
 
-        // Generate a summary of tag names and colors
         let tagDetails = tagIds.map(
           func(tagId) {
             switch (tags.get(tagId)) {
@@ -1077,7 +1435,7 @@ actor {
   func dateInDaysFromNow(dueDate : Int) : Text {
     let now = Time.now();
     let diff = dueDate - now;
-    let days = diff / 86_400_000_000_000; // Nanoseconds in a day
+    let days = diff / 86_400_000_000_000;
     if (days == 0) { "today" } else if (days == 1) { "tomorrow" } else { days.toText() # " days from now" };
   };
 
@@ -1568,7 +1926,6 @@ actor {
 
     let unassignedCount = projectCards.filter(func(c) { c.assignedUserId == null }).size();
 
-    // Calculate tag usage counts
     let tagCountArray = tagIdsToArray(projectCards);
 
     {

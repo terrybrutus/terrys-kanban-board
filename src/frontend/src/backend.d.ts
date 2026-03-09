@@ -34,6 +34,12 @@ export interface Comment {
     timestamp: bigint;
     cardId: bigint;
 }
+export interface SnapshotMeta {
+    id: bigint;
+    takenByName: string;
+    takenAt: bigint;
+    snapshotLabel: string;
+}
 export interface Card {
     id: bigint;
     title: string;
@@ -70,6 +76,15 @@ export interface Project {
     name: string;
     swimlanesEnabled: boolean;
 }
+export interface Revision {
+    id: bigint;
+    actorName: string;
+    description: string;
+    projectId: bigint;
+    timestamp: bigint;
+    cardId?: bigint;
+    revisionType: string;
+}
 export interface FilterPreset {
     id: bigint;
     dateTo: string;
@@ -82,15 +97,6 @@ export interface FilterPreset {
     unassignedOnly: boolean;
     dateFrom: string;
     dateField?: string;
-}
-export interface Revision {
-    id: bigint;
-    actorName: string;
-    description: string;
-    projectId: bigint;
-    timestamp: bigint;
-    cardId?: bigint;
-    revisionType: string;
 }
 export interface ProjectSummary {
     unassignedCount: bigint;
@@ -118,6 +124,7 @@ export interface backendInterface {
     deleteComment(commentId: bigint, actorUserId: bigint): Promise<void>;
     deleteFilterPreset(presetId: bigint, actorUserId: bigint): Promise<void>;
     deleteProject(projectId: bigint, actorUserId: bigint): Promise<void>;
+    deleteSnapshot(snapshotId: bigint, actorUserId: bigint): Promise<void>;
     deleteSwimlane(swimlaneId: bigint, actorUserId: bigint): Promise<void>;
     deleteTag(tagId: bigint, actorUserId: bigint): Promise<void>;
     deleteUser(userId: bigint, actorUserId: bigint): Promise<void>;
@@ -136,8 +143,11 @@ export interface backendInterface {
     getProjectTags(projectId: bigint): Promise<Array<Tag>>;
     getProjects(): Promise<Array<Project>>;
     getRevisions(projectId: bigint): Promise<Array<Revision>>;
+    getSnapshot(snapshotId: bigint): Promise<string | null>;
+    getSnapshots(): Promise<Array<SnapshotMeta>>;
     getSwimlanes(projectId: bigint): Promise<Array<Swimlane>>;
     getUsers(): Promise<Array<User>>;
+    grantSnapshotAccess(userId: bigint, actorUserId: bigint): Promise<void>;
     initBoard(): Promise<void>;
     initDefaultProject(): Promise<bigint>;
     isAdminSetup(): Promise<boolean>;
@@ -155,11 +165,13 @@ export interface backendInterface {
     resetMasterAdminPinWithSecurityAnswer(answerHash: string, newPinHash: string): Promise<boolean>;
     resetUserPin(userId: bigint, actorUserId: bigint, newPinHash: string): Promise<void>;
     restoreCard(cardId: bigint, actorUserId: bigint): Promise<void>;
+    revokeSnapshotAccess(userId: bigint, actorUserId: bigint): Promise<void>;
     saveFilterPreset(projectId: bigint, createdByUserId: bigint, name: string, assigneeId: bigint | null, tagIds: Array<bigint>, unassignedOnly: boolean, textSearch: string, dateField: string | null, dateFrom: string, dateTo: string): Promise<bigint>;
     setAccessKey(newKey: string, actorUserId: bigint): Promise<void>;
     setColumnComplete(columnId: bigint, isComplete: boolean, actorUserId: bigint): Promise<void>;
     setMasterAdminSecurityQuestion(question: string, answerHash: string, actorUserId: bigint): Promise<void>;
     setupMasterAdmin(name: string, pinHash: string): Promise<bigint>;
+    takeSnapshot(snapshotLabel: string, actorUserId: bigint): Promise<bigint>;
     updateCard(cardId: bigint, title: string, description: string | null, actorUserId: bigint): Promise<void>;
     updateCardDueDate(cardId: bigint, dueDate: bigint | null, actorUserId: bigint): Promise<void>;
     updateCardSwimlane(cardId: bigint, swimlaneId: bigint | null, actorUserId: bigint): Promise<void>;

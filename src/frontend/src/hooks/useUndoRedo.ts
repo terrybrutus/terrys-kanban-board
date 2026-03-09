@@ -1,73 +1,61 @@
 import { useCallback, useRef, useState } from "react";
+import type { Card, ColumnView, Swimlane } from "../backend.d";
 
-export interface UndoAction {
-  label: string;
-  undoFn: () => Promise<void>;
-  redoFn?: () => Promise<void>;
+export interface BoardSnapshot {
+  cards: Card[];
+  columns: ColumnView[];
+  swimlanes: Swimlane[];
 }
 
-export interface RedoAction {
-  label: string;
-  redoFn: () => Promise<void>;
-}
-
-const MAX_STACK = 50;
+const MAX_UNDO = 10;
 
 export function useUndoRedo() {
-  const undoStackRef = useRef<UndoAction[]>([]);
-  const redoStackRef = useRef<RedoAction[]>([]);
-  const [undoLabel, setUndoLabel] = useState<string | null>(null);
-  const [redoLabel, setRedoLabel] = useState<string | null>(null);
+  const undoStack = useRef<BoardSnapshot[]>([]);
+  const redoStack = useRef<BoardSnapshot[]>([]);
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
 
   const sync = useCallback(() => {
-    const u = undoStackRef.current;
-    const r = redoStackRef.current;
-    setUndoLabel(u.length > 0 ? u[u.length - 1].label : null);
-    setRedoLabel(r.length > 0 ? r[r.length - 1].label : null);
+    setCanUndo(undoStack.current.length > 0);
+    setCanRedo(redoStack.current.length > 0);
   }, []);
 
-  const pushUndo = useCallback(
-    (action: UndoAction, redoAction?: RedoAction) => {
-      undoStackRef.current.push(action);
-      if (undoStackRef.current.length > MAX_STACK) {
-        undoStackRef.current.shift();
+  /** Call this BEFORE any destructive action, passing current board state */
+  const pushSnapshot = useCallback(
+    (snapshot: BoardSnapshot) => {
+      undoStack.current.push(snapshot);
+      if (undoStack.current.length > MAX_UNDO) {
+        undoStack.current.shift();
       }
-      // Pushing a new action clears the redo stack (unless we're redoing)
-      if (!redoAction) {
-        redoStackRef.current = [];
-      }
+      // Clear redo stack on new action
+      redoStack.current = [];
       sync();
     },
     [sync],
   );
 
-  const undo = useCallback(async () => {
-    const action = undoStackRef.current.pop();
-    if (!action) return;
+  /** Returns the previous snapshot (caller must apply it to the React Query cache) */
+  const undo = useCallback((): BoardSnapshot | null => {
+    const snap = undoStack.current.pop();
+    if (!snap) return null;
+    redoStack.current.push(snap);
     sync();
-    // If the action has a redoFn, push it to the redo stack
-    if (action.redoFn) {
-      redoStackRef.current.push({
-        label: action.label,
-        redoFn: action.redoFn,
-      });
-      sync();
-    }
-    await action.undoFn();
+    return snap;
   }, [sync]);
 
-  const redo = useCallback(async () => {
-    const action = redoStackRef.current.pop();
-    if (!action) return;
+  const redo = useCallback((): BoardSnapshot | null => {
+    const snap = redoStack.current.pop();
+    if (!snap) return null;
+    undoStack.current.push(snap);
     sync();
-    await action.redoFn();
+    return snap;
   }, [sync]);
 
   const clearAll = useCallback(() => {
-    undoStackRef.current = [];
-    redoStackRef.current = [];
+    undoStack.current = [];
+    redoStack.current = [];
     sync();
   }, [sync]);
 
-  return { pushUndo, undo, redo, clearAll, undoLabel, redoLabel };
+  return { pushSnapshot, undo, redo, clearAll, canUndo, canRedo };
 }

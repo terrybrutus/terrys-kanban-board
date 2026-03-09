@@ -22,7 +22,7 @@ export interface FilterState {
   dateField: "createdAt" | "dueDate" | null;
   dateFrom: string;
   dateTo: string;
-  showArchived: boolean;
+  showArchived: boolean; // kept for internal use but not exposed in UI
 }
 
 export const EMPTY_FILTER: FilterState = {
@@ -58,8 +58,8 @@ export function isFilterActive(filters: FilterState): boolean {
     filters.tagIds.length > 0 ||
     filters.unassignedOnly ||
     filters.textSearch !== "" ||
-    filters.dateField !== null ||
-    filters.showArchived
+    filters.dateField !== null
+    // showArchived intentionally excluded — not surfaced in filter UI
   );
 }
 
@@ -99,7 +99,6 @@ export default function FilterBar({
     filters.unassignedOnly,
     filters.textSearch !== "",
     filters.dateField !== null,
-    filters.showArchived,
   ].filter(Boolean).length;
 
   function patch(partial: Partial<FilterState>) {
@@ -372,14 +371,6 @@ export default function FilterBar({
             color="emerald"
           />
         )}
-        {filters.showArchived && (
-          <FilterChip
-            label="Showing archived"
-            onRemove={() => patch({ showArchived: false })}
-            color="rose"
-          />
-        )}
-
         {/* Clear all */}
         {hasFilters && (
           <button
@@ -539,24 +530,6 @@ export default function FilterBar({
               </div>
             </div>
           )}
-
-          {/* Archived toggle */}
-          <div className="space-y-1.5">
-            <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
-              Archived Cards
-            </p>
-            <label className="flex items-center gap-1.5 cursor-pointer">
-              <input
-                type="checkbox"
-                className="h-3.5 w-3.5 rounded accent-primary"
-                checked={filters.showArchived}
-                onChange={(e) => patch({ showArchived: e.target.checked })}
-              />
-              <span className="text-xs text-muted-foreground">
-                Show archived cards
-              </span>
-            </label>
-          </div>
 
           {/* Date range filter */}
           <div className="space-y-1.5">

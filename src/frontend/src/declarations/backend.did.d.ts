@@ -81,6 +81,12 @@ export interface Revision {
   'cardId' : [] | [bigint],
   'revisionType' : string,
 }
+export interface SnapshotMeta {
+  'id' : bigint,
+  'takenByName' : string,
+  'takenAt' : bigint,
+  'snapshotLabel' : string,
+}
 export interface Swimlane {
   'id' : bigint,
   'order' : bigint,
@@ -124,6 +130,7 @@ export interface _SERVICE {
   'deleteComment' : ActorMethod<[bigint, bigint], undefined>,
   'deleteFilterPreset' : ActorMethod<[bigint, bigint], undefined>,
   'deleteProject' : ActorMethod<[bigint, bigint], undefined>,
+  'deleteSnapshot' : ActorMethod<[bigint, bigint], undefined>,
   'deleteSwimlane' : ActorMethod<[bigint, bigint], undefined>,
   'deleteTag' : ActorMethod<[bigint, bigint], undefined>,
   'deleteUser' : ActorMethod<[bigint, bigint], undefined>,
@@ -142,8 +149,11 @@ export interface _SERVICE {
   'getProjectTags' : ActorMethod<[bigint], Array<Tag>>,
   'getProjects' : ActorMethod<[], Array<Project>>,
   'getRevisions' : ActorMethod<[bigint], Array<Revision>>,
+  'getSnapshot' : ActorMethod<[bigint], [] | [string]>,
+  'getSnapshots' : ActorMethod<[], Array<SnapshotMeta>>,
   'getSwimlanes' : ActorMethod<[bigint], Array<Swimlane>>,
   'getUsers' : ActorMethod<[], Array<User>>,
+  'grantSnapshotAccess' : ActorMethod<[bigint, bigint], undefined>,
   'initBoard' : ActorMethod<[], undefined>,
   'initDefaultProject' : ActorMethod<[], bigint>,
   'isAdminSetup' : ActorMethod<[], boolean>,
@@ -167,6 +177,7 @@ export interface _SERVICE {
   >,
   'resetUserPin' : ActorMethod<[bigint, bigint, string], undefined>,
   'restoreCard' : ActorMethod<[bigint, bigint], undefined>,
+  'revokeSnapshotAccess' : ActorMethod<[bigint, bigint], undefined>,
   'saveFilterPreset' : ActorMethod<
     [
       bigint,
@@ -189,6 +200,7 @@ export interface _SERVICE {
     undefined
   >,
   'setupMasterAdmin' : ActorMethod<[string, string], bigint>,
+  'takeSnapshot' : ActorMethod<[string, bigint], bigint>,
   'updateCard' : ActorMethod<
     [bigint, string, [] | [string], bigint],
     undefined

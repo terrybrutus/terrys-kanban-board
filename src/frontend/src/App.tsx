@@ -32,10 +32,15 @@ import {
 } from "@dnd-kit/sortable";
 import { useQueryClient } from "@tanstack/react-query";
 import {
+  ArrowDownAZ,
+  ArrowUpAZ,
   BarChart2,
   ChevronDown,
   Clock,
   Crown,
+  Database,
+  Eye,
+  EyeOff,
   Kanban,
   Layers,
   LayoutDashboard,
@@ -43,7 +48,6 @@ import {
   Plus,
   Redo2,
   RefreshCw,
-  Settings,
   Shield,
   Tag,
   Undo2,
@@ -65,6 +69,7 @@ import KanbanCard from "./components/KanbanCard";
 import KanbanColumn from "./components/KanbanColumn";
 import ProjectExportImport from "./components/ProjectExportImport";
 import ProjectSwitcher from "./components/ProjectSwitcher";
+import SnapshotsPanel from "./components/SnapshotsPanel";
 import SwimlanesModal from "./components/SwimlanesModal";
 import TagsModal from "./components/TagsModal";
 import TutorialApp from "./components/TutorialApp";
@@ -108,7 +113,7 @@ import {
 import type { User } from "./hooks/useQueries";
 import { useUndoRedo } from "./hooks/useUndoRedo";
 
-type TabId = "board" | "users" | "activity" | "dashboard";
+type TabId = "board" | "users" | "activity" | "dashboard" | "snapshots";
 
 // Detect tutorial route at module level (safe — no hooks needed)
 const IS_TUTORIAL =
@@ -203,8 +208,21 @@ function AppInner() {
   }, [users, activeUser]);
 
   // ── Undo / Redo ─────────────────────────────────────────────────────────────
-  const { pushUndo, undo, redo, clearAll, undoLabel, redoLabel } =
+  const { pushSnapshot, undo, redo, clearAll, canUndo, canRedo } =
     useUndoRedo();
+
+  // ── Auto-snapshot helper ─────────────────────────────────────────────────────
+  // Silently takes a backend snapshot before destructive actions (fire-and-forget).
+  // Does NOT block the calling action — failures are silently ignored.
+  const autoSnapshot = useCallback(
+    (label: string) => {
+      if (!actor || !activeUser) return;
+      actor.takeSnapshot(label, activeUser.id).catch(() => {
+        // Silent — auto-snapshots are best-effort
+      });
+    },
+    [actor, activeUser],
+  );
 
   // ── Undo/Redo keyboard shortcuts ────────────────────────────────────────────
   useEffect(() => {
@@ -222,20 +240,59 @@ function AppInner() {
       const ctrlOrCmd = isMac ? e.metaKey : e.ctrlKey;
       if (ctrlOrCmd && e.key === "z" && !e.shiftKey) {
         e.preventDefault();
-        undo();
+        const snap = undo();
+        if (snap) {
+          queryClient.setQueryData(
+            ["cards", activeProjectId?.toString() ?? "none"],
+            snap.cards,
+          );
+          queryClient.setQueryData(
+            ["columns", activeProjectId?.toString() ?? "none"],
+            snap.columns,
+          );
+          toast.success(
+            "Undone (session only — do not refresh or the undo will be lost)",
+          );
+        }
       }
       if (ctrlOrCmd && (e.key === "Z" || (e.key === "z" && e.shiftKey))) {
         e.preventDefault();
-        redo();
+        const snap = redo();
+        if (snap) {
+          queryClient.setQueryData(
+            ["cards", activeProjectId?.toString() ?? "none"],
+            snap.cards,
+          );
+          queryClient.setQueryData(
+            ["columns", activeProjectId?.toString() ?? "none"],
+            snap.columns,
+          );
+          toast.success(
+            "Redone (session only — do not refresh or the redo will be lost)",
+          );
+        }
       }
       if (ctrlOrCmd && e.key === "y") {
         e.preventDefault();
-        redo();
+        const snap = redo();
+        if (snap) {
+          queryClient.setQueryData(
+            ["cards", activeProjectId?.toString() ?? "none"],
+            snap.cards,
+          );
+          queryClient.setQueryData(
+            ["columns", activeProjectId?.toString() ?? "none"],
+            snap.columns,
+          );
+          toast.success(
+            "Redone (session only — do not refresh or the redo will be lost)",
+          );
+        }
       }
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [activeTab, undo, redo]);
+  }, [activeTab, undo, redo, queryClient, activeProjectId]);
 
   // ── Tags modal ──────────────────────────────────────────────────────────────
   const [showTagsModal, setShowTagsModal] = useState(false);
@@ -285,6 +342,88 @@ function AppInner() {
   // Derive swimlanesEnabled from current project
   const swimlanesEnabled =
     projects.find((p) => p.id === activeProjectId)?.swimlanesEnabled ?? false;
+
+  // ── Column sort (visual-only, per project, localStorage) ────────────────────
+  type ColumnSortDir = "asc" | "desc" | null;
+  const colSortKey = `col_sort_${activeProjectId?.toString() ?? "none"}`;
+  const [columnSortDir, setColumnSortDir] = useState<ColumnSortDir>(() => {
+    try {
+      const saved = localStorage.getItem(colSortKey);
+      if (saved === "asc" || saved === "desc") return saved;
+    } catch {}
+    return null;
+  });
+
+  function cycleColumnSort() {
+    setColumnSortDir((prev) => {
+      let next: ColumnSortDir;
+      if (prev === null) next = "asc";
+      else if (prev === "asc") next = "desc";
+      else next = null;
+      try {
+        if (next === null) localStorage.removeItem(colSortKey);
+        else localStorage.setItem(colSortKey, next);
+      } catch {}
+      return next;
+    });
+  }
+
+  // Reset sort when project changes
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(colSortKey);
+      if (saved === "asc" || saved === "desc") setColumnSortDir(saved);
+      else setColumnSortDir(null);
+    } catch {
+      setColumnSortDir(null);
+    }
+  }, [colSortKey]);
+
+  // ── Hidden columns (per user per project, localStorage) ─────────────────────
+  const hiddenColsKey = `hidden_cols_${activeProjectId?.toString() ?? "none"}_${activeUser?.id?.toString() ?? "anon"}`;
+
+  const [hiddenColumnIds, setHiddenColumnIds] = useState<Set<string>>(() => {
+    try {
+      const saved = localStorage.getItem(hiddenColsKey);
+      if (saved) return new Set(JSON.parse(saved) as string[]);
+    } catch {}
+    return new Set();
+  });
+
+  // Reset hidden cols when project or user changes
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(hiddenColsKey);
+      if (saved) setHiddenColumnIds(new Set(JSON.parse(saved) as string[]));
+      else setHiddenColumnIds(new Set());
+    } catch {
+      setHiddenColumnIds(new Set());
+    }
+  }, [hiddenColsKey]);
+
+  function hideColumn(columnId: bigint) {
+    setHiddenColumnIds((prev) => {
+      const next = new Set(prev);
+      next.add(columnId.toString());
+      try {
+        localStorage.setItem(hiddenColsKey, JSON.stringify([...next]));
+      } catch {}
+      return next;
+    });
+  }
+
+  function unhideColumn(columnId: string) {
+    setHiddenColumnIds((prev) => {
+      const next = new Set(prev);
+      next.delete(columnId);
+      try {
+        localStorage.setItem(hiddenColsKey, JSON.stringify([...next]));
+      } catch {}
+      return next;
+    });
+  }
+
+  const [showHiddenColsPopover, setShowHiddenColsPopover] = useState(false);
 
   // ── Filter state ────────────────────────────────────────────────────────────
   const [filters, setFilters] = useState<FilterState>(EMPTY_FILTER);
@@ -407,10 +546,8 @@ function AppInner() {
         throw new Error("No active user");
       }
 
-      // Capture previous state for undo
-      const card = cards.find((c) => c.id === cardId);
-      const prevTitle = card?.title ?? "";
-      const prevDescription = card?.description ?? null;
+      // Capture state before the action for undo
+      pushSnapshot({ cards, columns, swimlanes });
 
       try {
         await updateCard({
@@ -420,37 +557,21 @@ function AppInner() {
           actorUserId: activeUser.id,
           projectId: activeProjectId ?? undefined,
         });
-
-        const capturedUserId = activeUser.id;
-        const capturedProjectId = activeProjectId;
-        pushUndo({
-          label: "Edit title",
-          undoFn: async () => {
-            await updateCard({
-              cardId,
-              title: prevTitle,
-              description: prevDescription,
-              actorUserId: capturedUserId,
-              projectId: capturedProjectId ?? undefined,
-            });
-          },
-          redoFn: async () => {
-            await updateCard({
-              cardId,
-              title,
-              description,
-              actorUserId: capturedUserId,
-              projectId: capturedProjectId ?? undefined,
-            });
-          },
-        });
       } catch (err) {
         if (err instanceof Error && err.message === "No active user") throw err;
         toast.error("Failed to update card");
         throw new Error("Failed to update card");
       }
     },
-    [updateCard, activeUser, activeProjectId, cards, pushUndo],
+    [
+      updateCard,
+      activeUser,
+      activeProjectId,
+      cards,
+      columns,
+      swimlanes,
+      pushSnapshot,
+    ],
   );
 
   const handleDeleteCard = useCallback(
@@ -459,6 +580,12 @@ function AppInner() {
         toast.error("Please set yourself as active in the Users tab first");
         throw new Error("No active user");
       }
+      // In-memory snapshot for session undo + backend auto-snapshot for failsafe
+      pushSnapshot({ cards, columns, swimlanes });
+      const deletedCard = cards.find((c) => c.id === cardId);
+      autoSnapshot(
+        `Before deleting card '${deletedCard?.title ?? String(cardId)}'`,
+      );
       try {
         await deleteCard({
           cardId,
@@ -471,7 +598,16 @@ function AppInner() {
         throw new Error("Failed to delete card");
       }
     },
-    [deleteCard, activeUser, activeProjectId],
+    [
+      deleteCard,
+      activeUser,
+      activeProjectId,
+      cards,
+      columns,
+      swimlanes,
+      pushSnapshot,
+      autoSnapshot,
+    ],
   );
 
   const handleMoveCard = useCallback(
@@ -481,13 +617,8 @@ function AppInner() {
         throw new Error("No active user");
       }
 
-      // Capture state before the move for undo
-      const card = cards.find((c) => c.id === cardId);
-      const originalColumnId = card?.columnId;
-      const originalColumn = columns.find((c) => c.id === originalColumnId);
-      const originalPosition = originalColumn
-        ? BigInt(originalColumn.cardIds.findIndex((id) => id === cardId))
-        : 0n;
+      // Snapshot before the move
+      pushSnapshot({ cards, columns, swimlanes });
 
       try {
         await moveCard({
@@ -497,40 +628,21 @@ function AppInner() {
           actorUserId: activeUser.id,
           projectId: activeProjectId ?? undefined,
         });
-
-        // Push undo after successful action (raw mutation bypasses undo tracking)
-        if (card && originalColumnId != null) {
-          const capturedUserId = activeUser.id;
-          const capturedProjectId = activeProjectId;
-          pushUndo({
-            label: "Move card",
-            undoFn: async () => {
-              await moveCard({
-                cardId,
-                targetColumnId: originalColumnId,
-                newPosition: originalPosition >= 0n ? originalPosition : 0n,
-                actorUserId: capturedUserId,
-                projectId: capturedProjectId ?? undefined,
-              });
-            },
-            redoFn: async () => {
-              await moveCard({
-                cardId,
-                targetColumnId,
-                newPosition,
-                actorUserId: capturedUserId,
-                projectId: capturedProjectId ?? undefined,
-              });
-            },
-          });
-        }
       } catch (err) {
         if (err instanceof Error && err.message === "No active user") throw err;
         toast.error("Failed to move card");
         throw new Error("Failed to move card");
       }
     },
-    [moveCard, activeUser, activeProjectId, cards, columns, pushUndo],
+    [
+      moveCard,
+      activeUser,
+      activeProjectId,
+      cards,
+      columns,
+      swimlanes,
+      pushSnapshot,
+    ],
   );
 
   const handleRenameColumn = useCallback(
@@ -590,6 +702,16 @@ function AppInner() {
       const capturedUserId = activeUser.id;
       const capturedProjectId = activeProjectId;
 
+      // In-memory snapshot for session undo + backend auto-snapshot for failsafe
+      pushSnapshot({ cards, columns, swimlanes });
+      const deletedColName =
+        columns.find((c) => c.id === columnId)?.name ?? String(columnId);
+      const deletedColCardCount =
+        columns.find((c) => c.id === columnId)?.cardIds.length ?? 0;
+      autoSnapshot(
+        `Before deleting column '${deletedColName}' · ${deletedColCardCount} card${deletedColCardCount !== 1 ? "s" : ""} moved`,
+      );
+
       try {
         // STEP 1: Move all cards one-by-one to destination (avoids backend moveCards stale-reference bug)
         if (destinationColumnId != null && capturedCardIds.length > 0) {
@@ -616,61 +738,6 @@ function AppInner() {
           projectId: capturedProjectId ?? undefined,
         });
         toast.success("Column deleted");
-
-        // Push undo
-        if (capturedColumn) {
-          pushUndo({
-            label: `Delete column "${capturedColumn.name}"`,
-            undoFn: async () => {
-              const newColId = await createColumn({
-                name: capturedColumn.name,
-                actorUserId: capturedUserId,
-                projectId: capturedProjectId ?? (0n as bigint),
-              });
-              // Move cards back from destination to the new column
-              if (destinationColumnId != null && capturedCardIds.length > 0) {
-                let pos = 0n;
-                for (const cardId of capturedCardIds) {
-                  await moveCard({
-                    cardId,
-                    targetColumnId: newColId,
-                    newPosition: pos,
-                    actorUserId: capturedUserId,
-                    projectId: capturedProjectId ?? undefined,
-                  });
-                  pos += 1n;
-                }
-              }
-            },
-            redoFn: async () => {
-              // Find the re-created column by name and delete it again
-              const currentCols = columns;
-              const col = currentCols.find(
-                (c) => c.name === capturedColumn.name,
-              );
-              if (col) {
-                if (col.cardIds.length > 0 && destinationColumnId != null) {
-                  let pos = 0n;
-                  for (const cid of col.cardIds) {
-                    await moveCard({
-                      cardId: cid,
-                      targetColumnId: destinationColumnId,
-                      newPosition: pos,
-                      actorUserId: capturedUserId,
-                      projectId: capturedProjectId ?? undefined,
-                    });
-                    pos += 1n;
-                  }
-                }
-                await deleteColumn({
-                  columnId: col.id,
-                  actorUserId: capturedUserId,
-                  projectId: capturedProjectId ?? undefined,
-                });
-              }
-            },
-          });
-        }
       } catch (err) {
         if (err instanceof Error && err.message === "No active user") throw err;
         toast.error("Failed to delete column");
@@ -679,12 +746,14 @@ function AppInner() {
     },
     [
       deleteColumn,
-      createColumn,
       moveCard,
       activeUser,
       activeProjectId,
+      cards,
       columns,
-      pushUndo,
+      swimlanes,
+      pushSnapshot,
+      autoSnapshot,
     ],
   );
 
@@ -695,9 +764,7 @@ function AppInner() {
         throw new Error("No active user");
       }
 
-      // Capture previous assignee for undo
-      const card = cards.find((c) => c.id === cardId);
-      const prevUserId = card?.assignedUserId ?? null;
+      pushSnapshot({ cards, columns, swimlanes });
 
       try {
         await assignCard({
@@ -706,35 +773,21 @@ function AppInner() {
           actorUserId: activeUser.id,
           projectId: activeProjectId ?? undefined,
         });
-
-        const capturedUserId = activeUser.id;
-        const capturedProjectId = activeProjectId;
-        pushUndo({
-          label: "Change assignee",
-          undoFn: async () => {
-            await assignCard({
-              cardId,
-              userId: prevUserId,
-              actorUserId: capturedUserId,
-              projectId: capturedProjectId ?? undefined,
-            });
-          },
-          redoFn: async () => {
-            await assignCard({
-              cardId,
-              userId,
-              actorUserId: capturedUserId,
-              projectId: capturedProjectId ?? undefined,
-            });
-          },
-        });
       } catch (err) {
         if (err instanceof Error && err.message === "No active user") throw err;
         toast.error("Failed to assign card");
         throw new Error("Failed to assign card");
       }
     },
-    [assignCard, activeUser, activeProjectId, cards, pushUndo],
+    [
+      assignCard,
+      activeUser,
+      activeProjectId,
+      cards,
+      columns,
+      swimlanes,
+      pushSnapshot,
+    ],
   );
 
   const handleUpdateCardTags = useCallback(
@@ -745,9 +798,7 @@ function AppInner() {
       }
       if (!activeProjectId) throw new Error("No active project");
 
-      // Capture previous tags for undo
-      const card = cards.find((c) => c.id === cardId);
-      const prevTagIds = card?.tags ?? [];
+      pushSnapshot({ cards, columns, swimlanes });
 
       try {
         await updateCardTags({
@@ -756,35 +807,21 @@ function AppInner() {
           actorUserId: activeUser.id,
           projectId: activeProjectId,
         });
-
-        const capturedUserId = activeUser.id;
-        const capturedProjectId = activeProjectId;
-        pushUndo({
-          label: "Update tags",
-          undoFn: async () => {
-            await updateCardTags({
-              cardId,
-              tagIds: prevTagIds,
-              actorUserId: capturedUserId,
-              projectId: capturedProjectId,
-            });
-          },
-          redoFn: async () => {
-            await updateCardTags({
-              cardId,
-              tagIds,
-              actorUserId: capturedUserId,
-              projectId: capturedProjectId,
-            });
-          },
-        });
       } catch (err) {
         if (err instanceof Error && err.message === "No active user") throw err;
         toast.error("Failed to update tags");
         throw new Error("Failed to update tags");
       }
     },
-    [updateCardTags, activeUser, activeProjectId, cards, pushUndo],
+    [
+      updateCardTags,
+      activeUser,
+      activeProjectId,
+      cards,
+      columns,
+      swimlanes,
+      pushSnapshot,
+    ],
   );
 
   const handleUpdateCardDueDate = useCallback(
@@ -795,9 +832,7 @@ function AppInner() {
       }
       if (!activeProjectId) throw new Error("No active project");
 
-      // Capture previous due date for undo
-      const card = cards.find((c) => c.id === cardId);
-      const prevDueDate = card?.dueDate ?? null;
+      pushSnapshot({ cards, columns, swimlanes });
 
       try {
         await updateCardDueDate({
@@ -806,35 +841,21 @@ function AppInner() {
           actorUserId: activeUser.id,
           projectId: activeProjectId,
         });
-
-        const capturedUserId = activeUser.id;
-        const capturedProjectId = activeProjectId;
-        pushUndo({
-          label: "Set due date",
-          undoFn: async () => {
-            await updateCardDueDate({
-              cardId,
-              dueDate: prevDueDate,
-              actorUserId: capturedUserId,
-              projectId: capturedProjectId,
-            });
-          },
-          redoFn: async () => {
-            await updateCardDueDate({
-              cardId,
-              dueDate,
-              actorUserId: capturedUserId,
-              projectId: capturedProjectId,
-            });
-          },
-        });
       } catch (err) {
         if (err instanceof Error && err.message === "No active user") throw err;
         toast.error("Failed to update due date");
         throw new Error("Failed to update due date");
       }
     },
-    [updateCardDueDate, activeUser, activeProjectId, cards, pushUndo],
+    [
+      updateCardDueDate,
+      activeUser,
+      activeProjectId,
+      cards,
+      columns,
+      swimlanes,
+      pushSnapshot,
+    ],
   );
 
   // ── Archive / Restore handlers ──────────────────────────────────────────────
@@ -844,31 +865,15 @@ function AppInner() {
         toast.error("Please set yourself as active in the Users tab first");
         throw new Error("No active user");
       }
+      pushSnapshot({ cards, columns, swimlanes });
+      const archivedCardTitle =
+        cards.find((c) => c.id === cardId)?.title ?? String(cardId);
+      autoSnapshot(`Before archiving card '${archivedCardTitle}'`);
       try {
         await archiveCard({
           cardId,
           actorUserId: activeUser.id,
           projectId: activeProjectId ?? undefined,
-        });
-
-        const capturedUserId = activeUser.id;
-        const capturedProjectId = activeProjectId;
-        pushUndo({
-          label: "Archive card",
-          undoFn: async () => {
-            await restoreCard({
-              cardId,
-              actorUserId: capturedUserId,
-              projectId: capturedProjectId ?? undefined,
-            });
-          },
-          redoFn: async () => {
-            await archiveCard({
-              cardId,
-              actorUserId: capturedUserId,
-              projectId: capturedProjectId ?? undefined,
-            });
-          },
         });
       } catch (err) {
         if (err instanceof Error && err.message === "No active user") throw err;
@@ -876,7 +881,16 @@ function AppInner() {
         throw new Error("Failed to archive card");
       }
     },
-    [archiveCard, restoreCard, activeUser, activeProjectId, pushUndo],
+    [
+      archiveCard,
+      activeUser,
+      activeProjectId,
+      cards,
+      columns,
+      swimlanes,
+      pushSnapshot,
+      autoSnapshot,
+    ],
   );
 
   const handleRestoreCard = useCallback(
@@ -885,31 +899,12 @@ function AppInner() {
         toast.error("Please set yourself as active in the Users tab first");
         throw new Error("No active user");
       }
+      pushSnapshot({ cards, columns, swimlanes });
       try {
         await restoreCard({
           cardId,
           actorUserId: activeUser.id,
           projectId: activeProjectId ?? undefined,
-        });
-
-        const capturedUserId = activeUser.id;
-        const capturedProjectId = activeProjectId;
-        pushUndo({
-          label: "Restore card",
-          undoFn: async () => {
-            await archiveCard({
-              cardId,
-              actorUserId: capturedUserId,
-              projectId: capturedProjectId ?? undefined,
-            });
-          },
-          redoFn: async () => {
-            await restoreCard({
-              cardId,
-              actorUserId: capturedUserId,
-              projectId: capturedProjectId ?? undefined,
-            });
-          },
         });
       } catch (err) {
         if (err instanceof Error && err.message === "No active user") throw err;
@@ -917,7 +912,15 @@ function AppInner() {
         throw new Error("Failed to restore card");
       }
     },
-    [restoreCard, archiveCard, activeUser, activeProjectId, pushUndo],
+    [
+      restoreCard,
+      activeUser,
+      activeProjectId,
+      cards,
+      columns,
+      swimlanes,
+      pushSnapshot,
+    ],
   );
 
   const handleUpdateCardSwimlane = useCallback(
@@ -1100,24 +1103,14 @@ function AppInner() {
         throw new Error("No active user");
       }
 
-      // Capture original column for each card (for undo)
-      const cardOriginalColumns = new Map<
-        string,
-        { columnId: bigint; position: bigint }
-      >();
-      for (const cardId of cardIds) {
-        const card = cards.find((c) => c.id === cardId);
-        if (card) {
-          const col = columns.find((c) => c.id === card.columnId);
-          const pos = col
-            ? BigInt(col.cardIds.findIndex((id) => id === cardId))
-            : 0n;
-          cardOriginalColumns.set(cardId.toString(), {
-            columnId: card.columnId,
-            position: pos >= 0n ? pos : 0n,
-          });
-        }
-      }
+      // In-memory snapshot for session undo + backend auto-snapshot for failsafe
+      pushSnapshot({ cards, columns, swimlanes });
+      const targetColName =
+        columns.find((c) => c.id === targetColumnId)?.name ??
+        String(targetColumnId);
+      autoSnapshot(
+        `Before moving ${cardIds.length} card${cardIds.length !== 1 ? "s" : ""} to '${targetColName}'`,
+      );
 
       try {
         // Use sequential moveCard calls to work around backend moveCards stale-reference bug
@@ -1133,46 +1126,22 @@ function AppInner() {
           });
           position += 1n;
         }
-
-        // Push undo for the bulk move
-        const capturedUserId = activeUser.id;
-        const capturedProjectId = activeProjectId;
-        pushUndo({
-          label: `Move ${cardIds.length} cards`,
-          undoFn: async () => {
-            for (const [cardIdStr, original] of cardOriginalColumns.entries()) {
-              const cardId = BigInt(cardIdStr);
-              await moveCard({
-                cardId,
-                targetColumnId: original.columnId,
-                newPosition: original.position,
-                actorUserId: capturedUserId,
-                projectId: capturedProjectId ?? undefined,
-              });
-            }
-          },
-          redoFn: async () => {
-            const tc = columns.find((c) => c.id === targetColumnId);
-            let pos = BigInt(tc?.cardIds.length ?? 0);
-            for (const cardId of cardIds) {
-              await moveCard({
-                cardId,
-                targetColumnId,
-                newPosition: pos,
-                actorUserId: capturedUserId,
-                projectId: capturedProjectId ?? undefined,
-              });
-              pos += 1n;
-            }
-          },
-        });
       } catch (err) {
         if (err instanceof Error && err.message === "No active user") throw err;
         toast.error("Failed to move cards");
         throw new Error("Failed to move cards");
       }
     },
-    [moveCard, activeUser, activeProjectId, cards, columns, pushUndo],
+    [
+      moveCard,
+      activeUser,
+      activeProjectId,
+      cards,
+      columns,
+      swimlanes,
+      pushSnapshot,
+      autoSnapshot,
+    ],
   );
 
   // ── Quick switcher: confirm PIN ─────────────────────────────────────────────
@@ -1633,7 +1602,21 @@ function AppInner() {
   }
 
   // ── Effective columns (uses optimistic order when column-dragging) ───────────
-  const effectiveColumns = localColumnOrder ?? columns;
+  // Apply column sort if active, then filter hidden columns
+  const effectiveColumns = (() => {
+    let cols = localColumnOrder ?? columns;
+    // Apply alphabetical sort (visual-only — does not persist to backend)
+    if (columnSortDir === "asc") {
+      cols = [...cols].sort((a, b) => a.name.localeCompare(b.name));
+    } else if (columnSortDir === "desc") {
+      cols = [...cols].sort((a, b) => b.name.localeCompare(a.name));
+    }
+    // Filter hidden columns
+    if (hiddenColumnIds.size > 0) {
+      cols = cols.filter((c) => !hiddenColumnIds.has(c.id.toString()));
+    }
+    return cols;
+  })();
 
   // Build effective columns/cards for rendering (uses optimistic override when dragging)
   function getEffectiveCardsForColumn(column: ColumnView): Card[] {
@@ -1757,9 +1740,8 @@ function AppInner() {
         >
           <DialogContent className="max-w-md">
             <DialogHeader>
-              <DialogTitle className="text-base font-display flex items-center gap-2">
-                <Settings className="h-4 w-4 text-muted-foreground" />
-                Project Settings
+              <DialogTitle className="text-base font-display">
+                Import / Export
               </DialogTitle>
             </DialogHeader>
             <div className="pt-1">
@@ -1938,6 +1920,22 @@ function AppInner() {
             <BarChart2 className="h-3.5 w-3.5" />
             Dashboard
           </button>
+          {/* Snapshots tab — only visible to admins */}
+          {isAdminUser && (
+            <button
+              type="button"
+              onClick={() => setActiveTab("snapshots")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                activeTab === "snapshots"
+                  ? "bg-secondary text-foreground"
+                  : "text-muted-foreground hover:text-foreground hover:bg-secondary/60"
+              }`}
+              data-ocid="nav.snapshots.tab"
+            >
+              <Database className="h-3.5 w-3.5" />
+              Snapshots
+            </button>
+          )}
         </nav>
 
         <div className="ml-auto flex items-center gap-2">
@@ -1947,11 +1945,25 @@ function AppInner() {
               <button
                 type="button"
                 onClick={() => {
-                  undo();
+                  const snap = undo();
+                  if (snap) {
+                    queryClient.setQueryData(
+                      ["cards", activeProjectId?.toString() ?? "none"],
+                      snap.cards,
+                    );
+                    queryClient.setQueryData(
+                      ["columns", activeProjectId?.toString() ?? "none"],
+                      snap.columns,
+                    );
+                    toast.success(
+                      "Undone (session only — do not refresh or the undo will be lost)",
+                    );
+                  }
                 }}
-                disabled={undoLabel === null}
+                disabled={!canUndo}
                 className="flex items-center gap-1 px-2.5 py-1.5 rounded-md text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors disabled:opacity-30 disabled:pointer-events-none"
-                title={undoLabel ? `Undo: ${undoLabel}` : "Nothing to undo"}
+                title={canUndo ? "Undo last action" : "Nothing to undo"}
+                data-ocid="board.undo_button"
               >
                 <Undo2 className="h-3.5 w-3.5" />
                 <span className="hidden sm:inline">Undo</span>
@@ -1959,11 +1971,25 @@ function AppInner() {
               <button
                 type="button"
                 onClick={() => {
-                  redo();
+                  const snap = redo();
+                  if (snap) {
+                    queryClient.setQueryData(
+                      ["cards", activeProjectId?.toString() ?? "none"],
+                      snap.cards,
+                    );
+                    queryClient.setQueryData(
+                      ["columns", activeProjectId?.toString() ?? "none"],
+                      snap.columns,
+                    );
+                    toast.success(
+                      "Redone (session only — do not refresh or the redo will be lost)",
+                    );
+                  }
                 }}
-                disabled={redoLabel === null}
+                disabled={!canRedo}
                 className="flex items-center gap-1 px-2.5 py-1.5 rounded-md text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors disabled:opacity-30 disabled:pointer-events-none"
-                title={redoLabel ? `Redo: ${redoLabel}` : "Nothing to redo"}
+                title={canRedo ? "Redo last undone action" : "Nothing to redo"}
+                data-ocid="board.redo_button"
               >
                 <Redo2 className="h-3.5 w-3.5" />
                 <span className="hidden sm:inline">Redo</span>
@@ -1997,8 +2023,8 @@ function AppInner() {
             </button>
           )}
 
-          {/* Swimlanes button — admin only, shown on board tab */}
-          {isAdminUser && activeTab === "board" && activeProjectId && (
+          {/* Swimlanes button — visible to all users on board tab */}
+          {activeTab === "board" && activeProjectId && (
             <button
               type="button"
               onClick={() => setShowSwimlanesModal(true)}
@@ -2018,15 +2044,109 @@ function AppInner() {
             </button>
           )}
 
-          {/* Project settings (export/import) — shown when a project is active */}
+          {/* Column sort button — shown on board tab */}
+          {activeTab === "board" && activeProjectId && (
+            <button
+              type="button"
+              onClick={cycleColumnSort}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                columnSortDir !== null
+                  ? "text-primary bg-primary/10 hover:bg-primary/15"
+                  : "text-muted-foreground hover:text-foreground hover:bg-secondary/60"
+              }`}
+              title={
+                columnSortDir === null
+                  ? "Sort columns A→Z"
+                  : columnSortDir === "asc"
+                    ? "Sort columns Z→A"
+                    : "Clear column sort"
+              }
+              data-ocid="board.sort.toggle"
+            >
+              {columnSortDir === "desc" ? (
+                <ArrowUpAZ className="h-3.5 w-3.5" />
+              ) : (
+                <ArrowDownAZ className="h-3.5 w-3.5" />
+              )}
+              <span className="hidden sm:inline">
+                {columnSortDir === null
+                  ? "Sort"
+                  : columnSortDir === "asc"
+                    ? "A→Z"
+                    : "Z→A"}
+              </span>
+            </button>
+          )}
+
+          {/* Hidden columns badge — shown on board tab when columns are hidden */}
+          {activeTab === "board" &&
+            activeProjectId &&
+            hiddenColumnIds.size > 0 && (
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setShowHiddenColsPopover((v) => !v)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium text-amber-600 bg-amber-500/10 hover:bg-amber-500/15 transition-colors"
+                  title="Show hidden columns"
+                  data-ocid="board.hidden_cols.toggle"
+                >
+                  <EyeOff className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">
+                    {hiddenColumnIds.size} hidden
+                  </span>
+                  <span className="sm:hidden">{hiddenColumnIds.size}</span>
+                </button>
+                {showHiddenColsPopover && (
+                  <>
+                    {/* Backdrop to close */}
+                    <div
+                      className="fixed inset-0 z-30"
+                      onClick={() => setShowHiddenColsPopover(false)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") setShowHiddenColsPopover(false);
+                      }}
+                      role="button"
+                      tabIndex={-1}
+                      aria-label="Close hidden columns panel"
+                    />
+                    <div className="absolute right-0 top-full mt-1 z-40 w-56 rounded-lg border border-border bg-card shadow-lg py-1">
+                      <p className="px-3 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide border-b border-border mb-1">
+                        Hidden columns
+                      </p>
+                      {columns
+                        .filter((c) => hiddenColumnIds.has(c.id.toString()))
+                        .map((col) => (
+                          <button
+                            key={col.id.toString()}
+                            type="button"
+                            onClick={() => {
+                              unhideColumn(col.id.toString());
+                              if (hiddenColumnIds.size <= 1)
+                                setShowHiddenColsPopover(false);
+                            }}
+                            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-foreground hover:bg-secondary/60 transition-colors text-left"
+                            data-ocid="board.unhide_col.button"
+                          >
+                            <Eye className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                            <span className="flex-1 truncate">{col.name}</span>
+                          </button>
+                        ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
+          {/* Import/Export — shown when a project is active */}
           {activeProjectId && (
             <button
               type="button"
               onClick={() => setShowProjectSettings(true)}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors"
-              title="Project settings (export / import)"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors"
+              title="Export or import project data"
+              data-ocid="board.import_export.button"
             >
-              <Settings className="h-3.5 w-3.5" />
+              Import/Export
             </button>
           )}
 
@@ -2212,6 +2332,7 @@ function AppInner() {
                           if (!requireActiveUser()) return;
                           setBulkImportColumn(column);
                         }}
+                        onHideColumn={hideColumn}
                         projectTags={projectTags}
                         siblingColumns={effectiveColumns}
                         users={users}
@@ -2341,6 +2462,16 @@ function AppInner() {
           />
         ) : activeTab === "activity" ? (
           <ActivityTab projectId={activeProjectId} />
+        ) : activeTab === "snapshots" ? (
+          <div className="flex-1 overflow-y-auto px-6 py-6">
+            <div className="max-w-2xl mx-auto">
+              <SnapshotsPanel
+                activeUser={activeUser}
+                actor={actor}
+                activeProjectId={activeProjectId}
+              />
+            </div>
+          </div>
         ) : (
           <DashboardTab
             projectId={activeProjectId}

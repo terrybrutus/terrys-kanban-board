@@ -8,6 +8,7 @@ import type {
   Project,
   ProjectSummary,
   Revision,
+  SnapshotMeta,
   Swimlane,
   Tag,
 } from "../backend.d";
@@ -1548,5 +1549,92 @@ export function useProjectSummary(projectId: bigint | null) {
     // No refetchInterval — dashboard fetches on demand when the tab is opened.
     // Data is considered fresh for 60 seconds to avoid unnecessary re-fetches.
     staleTime: 60_000,
+  });
+}
+
+// ─── Snapshot hooks ───────────────────────────────────────────────────────────
+
+export function useSnapshots() {
+  const { actor, isFetching } = useActor();
+  return useQuery<SnapshotMeta[]>({
+    queryKey: ["snapshots"],
+    queryFn: async () => {
+      if (!actor) return [];
+      return actor.getSnapshots();
+    },
+    enabled: !!actor && !isFetching,
+    staleTime: 30_000,
+  });
+}
+
+export function useTakeSnapshot() {
+  const { actor } = useActor();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      snapshotLabel,
+      actorUserId,
+    }: {
+      snapshotLabel: string;
+      actorUserId: bigint;
+    }): Promise<bigint> => {
+      if (!actor) throw new Error("No actor");
+      return actor.takeSnapshot(snapshotLabel, actorUserId);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["snapshots"] });
+    },
+  });
+}
+
+export function useDeleteSnapshot() {
+  const { actor } = useActor();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      snapshotId,
+      actorUserId,
+    }: {
+      snapshotId: bigint;
+      actorUserId: bigint;
+    }): Promise<void> => {
+      if (!actor) throw new Error("No actor");
+      return actor.deleteSnapshot(snapshotId, actorUserId);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["snapshots"] });
+    },
+  });
+}
+
+export function useGrantSnapshotAccess() {
+  const { actor } = useActor();
+  return useMutation({
+    mutationFn: async ({
+      userId,
+      actorUserId,
+    }: {
+      userId: bigint;
+      actorUserId: bigint;
+    }): Promise<void> => {
+      if (!actor) throw new Error("No actor");
+      return actor.grantSnapshotAccess(userId, actorUserId);
+    },
+  });
+}
+
+export function useRevokeSnapshotAccess() {
+  const { actor } = useActor();
+  return useMutation({
+    mutationFn: async ({
+      userId,
+      actorUserId,
+    }: {
+      userId: bigint;
+      actorUserId: bigint;
+    }): Promise<void> => {
+      if (!actor) throw new Error("No actor");
+      return actor.revokeSnapshotAccess(userId, actorUserId);
+    },
   });
 }

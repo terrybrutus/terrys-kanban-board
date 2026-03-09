@@ -236,7 +236,11 @@ function ImportMappingModal({
 
   return (
     <Dialog open onOpenChange={onCancel}>
-      <DialogContent className="max-w-lg w-full max-h-[90vh] overflow-hidden flex flex-col gap-0 p-0">
+      <DialogContent
+        className="max-w-lg w-full p-0 flex flex-col gap-0 overflow-hidden"
+        style={{ maxHeight: "85vh" }}
+      >
+        {/* Header — always visible, never scrolls */}
         <DialogHeader className="px-6 pt-5 pb-4 border-b border-border shrink-0">
           <DialogTitle className="text-base font-display font-semibold flex items-center gap-2">
             <MapPin className="h-4 w-4 text-muted-foreground" />
@@ -248,59 +252,59 @@ function ImportMappingModal({
           </p>
         </DialogHeader>
 
-        <ScrollArea className="flex-1 min-h-0">
-          <div className="px-6 py-4 space-y-6">
-            {totalFields === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-4">
-                No mappable fields found in the import file.
+        {/* Scrollable content — flex-1 so it fills available space between header and footer */}
+        <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4 space-y-6">
+          {totalFields === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-4">
+              No mappable fields found in the import file.
+            </p>
+          ) : (
+            <>
+              <MappingSection
+                title="Columns"
+                mappings={columnMappings}
+                setMappings={setColumnMappings}
+                existing={existingColumns}
+                entityLabel="column"
+              />
+              {columnMappings.length > 0 && userMappings.length > 0 && (
+                <Separator />
+              )}
+              <MappingSection
+                title="Users / Assignees"
+                mappings={userMappings}
+                setMappings={setUserMappings}
+                existing={existingUsers}
+                entityLabel="user"
+              />
+              {userMappings.length > 0 && tagMappings.length > 0 && (
+                <Separator />
+              )}
+              <MappingSection
+                title="Tags"
+                mappings={tagMappings}
+                setMappings={setTagMappings}
+                existing={existingTags}
+                entityLabel="tag"
+              />
+            </>
+          )}
+
+          {/* Auto-create notice */}
+          {autoCreating > 0 && (
+            <div className="flex items-start gap-2.5 rounded-lg bg-amber-500/8 border border-amber-500/20 px-3 py-2.5">
+              <AlertTriangle className="h-3.5 w-3.5 text-amber-600 shrink-0 mt-0.5" />
+              <p className="text-xs text-amber-700 dark:text-amber-400 leading-relaxed">
+                <strong>{autoCreating}</strong> field
+                {autoCreating !== 1 ? "s" : ""} will be auto-created in your
+                app. You can always rename or delete them after import.
               </p>
-            ) : (
-              <>
-                <MappingSection
-                  title="Columns"
-                  mappings={columnMappings}
-                  setMappings={setColumnMappings}
-                  existing={existingColumns}
-                  entityLabel="column"
-                />
-                {columnMappings.length > 0 && userMappings.length > 0 && (
-                  <Separator />
-                )}
-                <MappingSection
-                  title="Users / Assignees"
-                  mappings={userMappings}
-                  setMappings={setUserMappings}
-                  existing={existingUsers}
-                  entityLabel="user"
-                />
-                {userMappings.length > 0 && tagMappings.length > 0 && (
-                  <Separator />
-                )}
-                <MappingSection
-                  title="Tags"
-                  mappings={tagMappings}
-                  setMappings={setTagMappings}
-                  existing={existingTags}
-                  entityLabel="tag"
-                />
-              </>
-            )}
+            </div>
+          )}
+        </div>
 
-            {/* Auto-create notice */}
-            {autoCreating > 0 && (
-              <div className="flex items-start gap-2.5 rounded-lg bg-amber-500/8 border border-amber-500/20 px-3 py-2.5">
-                <AlertTriangle className="h-3.5 w-3.5 text-amber-600 shrink-0 mt-0.5" />
-                <p className="text-xs text-amber-700 dark:text-amber-400 leading-relaxed">
-                  <strong>{autoCreating}</strong> field
-                  {autoCreating !== 1 ? "s" : ""} will be auto-created in your
-                  app. You can always rename or delete them after import.
-                </p>
-              </div>
-            )}
-          </div>
-        </ScrollArea>
-
-        <div className="px-6 py-4 border-t border-border flex gap-2 shrink-0">
+        {/* Footer — always pinned at bottom, never pushed off screen */}
+        <div className="px-6 py-4 border-t border-border flex gap-2 shrink-0 bg-card">
           <Button size="sm" onClick={handleConfirm} className="flex-1 gap-2">
             <Upload className="h-3.5 w-3.5" />
             Import with these settings

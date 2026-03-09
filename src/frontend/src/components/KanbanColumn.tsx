@@ -40,6 +40,7 @@ import {
   Calendar,
   Check,
   CheckCircle2,
+  EyeOff,
   GripVertical,
   HelpCircle,
   Loader2,
@@ -156,6 +157,7 @@ interface KanbanColumnProps {
   ) => Promise<void>;
   onMoveCards?: (cardIds: bigint[], targetColumnId: bigint) => Promise<void>;
   onBulkImport?: () => void;
+  onHideColumn?: (columnId: bigint) => void;
   onSetColumnComplete?: (
     columnId: bigint,
     isComplete: boolean,
@@ -199,6 +201,7 @@ function KanbanColumnInner({
   onUpdateCardSwimlane,
   onMoveCards,
   onBulkImport,
+  onHideColumn,
   onSetColumnComplete,
   onQuickAdd,
   projectTags,
@@ -892,6 +895,15 @@ function KanbanColumnInner({
                     <Upload className="h-3.5 w-3.5 mr-2" />
                     Bulk import cards
                   </DropdownMenuItem>
+                  {onHideColumn && (
+                    <DropdownMenuItem
+                      onClick={() => onHideColumn(column.id)}
+                      className="text-muted-foreground focus:text-foreground"
+                    >
+                      <EyeOff className="h-3.5 w-3.5 mr-2" />
+                      Hide column
+                    </DropdownMenuItem>
+                  )}
                   <DropdownMenuItem
                     onClick={openDeleteColumnDialog}
                     className="text-destructive focus:text-destructive"
