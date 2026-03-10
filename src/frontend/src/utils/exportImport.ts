@@ -114,12 +114,14 @@ export async function restoreFromSnapshot(
   const targetProjectIdStr = targetProjectId.toString();
   const snapProjects = raw.projects ?? [];
 
-  // Find the matching project in the snapshot — try by ID first, then by name, then single-project fallback
+  // noProjectFilter: snapshot has 0 project records (serialization bug) — restore all data regardless of projectId
+  const noProjectFilter = snapProjects.length === 0;
+
   let snapProject: RawSnapshotProject | undefined = snapProjects.find(
     (p) => String(p.id) === targetProjectIdStr,
   );
 
-  if (!snapProject) {
+  if (!snapProject && !noProjectFilter) {
     // Fallback 1: match by current project name
     try {
       const liveProjects = await actor.getProjects();
@@ -129,34 +131,63 @@ export async function restoreFromSnapshot(
         snapProject = snapProjects.find(
           (p) => (p.name ?? "").toLowerCase() === liveNameLower,
         );
-        if (snapProject) {
-          result.warnings.push(
-            `Project ID mismatch — matched snapshot project "${snapProject.name}" by name instead of ID.`,
-          );
-        }
       }
     } catch {
       // getProjects failed — continue to next fallback
     }
   }
 
-  if (!snapProject && snapProjects.length === 1) {
-    // Fallback 2: only one project in snapshot — use it
+  if (!snapProject && !noProjectFilter && snapProjects.length === 1) {
     snapProject = snapProjects[0];
-    result.warnings.push(
-      `Project ID mismatch — restored from the only project found in the snapshot ("${snapProject.name}").`,
-    );
   }
 
-  if (!snapProject) {
+  if (!snapProject && !noProjectFilter) {
     result.errors.push(
-      `Could not find a matching project in this snapshot. The snapshot contains ${snapProjects.length} project(s) but none matched the active project by ID or name. Make sure you are restoring a snapshot taken for this project.`,
+      `Could not find a matching project in this snapshot. The snapshot contains ${snapProjects.length} project(s) but none matched the active project by ID or name.`,
     );
     return result;
   }
 
-  // Use the snapshot project's own ID for filtering related records
-  const snapProjectIdStr = String(snapProject.id);
+  if (noProjectFilter) {
+    result.warnings.push(
+      "Snapshot has no project records — restoring all columns and cards from snapshot directly.",
+    );
+  }
+
+  // When noProjectFilter is true, snapProjectIdStr is unused (filtering is skipped)
+  let snapProjectIdStr = snapProject ? String(snapProject.id) : "";
+  const swimlanesEnabled = snapProject?.swimlanesEnabled ?? false;
+
+  // ── PRE-CHECK: Verify snapshot has data BEFORE wiping anything ─────────────
+  // If the snapshot has 0 columns, abort immediately to protect existing board.
+  // Fallback 1: filter by matching project ID
+  let effectiveNoProjectFilter = noProjectFilter;
+  let colsToRestore = noProjectFilter
+    ? (raw.columns ?? [])
+    : (raw.columns ?? []).filter(
+        (c) => String(c.projectId) === snapProjectIdStr,
+      );
+
+  // Fallback 2: project ID mismatch — snapshot has columns but none match the
+  // active project ID (e.g. project was recreated with a new ID). Use ALL columns.
+  if (colsToRestore.length === 0 && (raw.columns ?? []).length > 0) {
+    colsToRestore = raw.columns ?? [];
+    effectiveNoProjectFilter = true;
+    snapProjectIdStr = "";
+    result.warnings.push(
+      "Project ID mismatch — restoring all columns from snapshot regardless of project ID.",
+    );
+  }
+
+  if (colsToRestore.length === 0) {
+    result.errors.push(
+      "This snapshot contains 0 columns — restore aborted. " +
+        "Your board data has NOT been changed. " +
+        "The snapshot may have been captured after the board was already empty. " +
+        "Try restoring an earlier snapshot.",
+    );
+    return result;
+  }
 
   try {
     // ── STEP 1: Wipe existing project data ─────────────────────────────────
@@ -218,9 +249,11 @@ export async function restoreFromSnapshot(
     // Maps old snapshot tag ID → new backend tag ID
     const tagIdMap = new Map<string, bigint>();
 
-    const snapTags = (raw.tags ?? []).filter(
-      (t) => String(t.projectId) === snapProjectIdStr,
-    );
+    const snapTags = effectiveNoProjectFilter
+      ? (raw.tags ?? [])
+      : (raw.tags ?? []).filter(
+          (t) => String(t.projectId) === snapProjectIdStr,
+        );
 
     for (const tag of snapTags) {
       try {
@@ -242,9 +275,11 @@ export async function restoreFromSnapshot(
     // ── STEP 3: Restore swimlanes ───────────────────────────────────────────
     const swimlaneIdMap = new Map<string, bigint>();
 
-    const snapSwimlanes = (raw.swimlanes ?? []).filter(
-      (sl) => String(sl.projectId) === snapProjectIdStr,
-    );
+    const snapSwimlanes = effectiveNoProjectFilter
+      ? (raw.swimlanes ?? [])
+      : (raw.swimlanes ?? []).filter(
+          (sl) => String(sl.projectId) === snapProjectIdStr,
+        );
 
     for (const sl of snapSwimlanes) {
       try {
@@ -263,7 +298,7 @@ export async function restoreFromSnapshot(
     }
 
     // Restore swimlanes enabled state
-    if (snapProject.swimlanesEnabled && swimlaneIdMap.size > 0) {
+    if (swimlanesEnabled && swimlaneIdMap.size > 0) {
       await actor
         .enableSwimlanes(targetProjectId, activeUserId)
         .catch(() => {});
@@ -288,9 +323,8 @@ export async function restoreFromSnapshot(
     // ── STEP 5: Restore columns (maintaining order from cardIds order) ──────
     const columnIdMap = new Map<string, bigint>(); // old snap col ID → new backend col ID
 
-    const snapColumns = (raw.columns ?? []).filter(
-      (c) => String(c.projectId) === snapProjectIdStr,
-    );
+    // snapColumns already computed in pre-check above (same derivation)
+    const snapColumns = colsToRestore;
 
     for (const col of snapColumns) {
       try {
@@ -333,7 +367,11 @@ export async function restoreFromSnapshot(
       for (const snapCardId of orderedCardIds) {
         const card = cardDataMap.get(snapCardId);
         if (!card) continue;
-        if (String(card.projectId) !== snapProjectIdStr) continue;
+        if (
+          !effectiveNoProjectFilter &&
+          String(card.projectId) !== snapProjectIdStr
+        )
+          continue;
 
         try {
           const newCardId = await actor.createCard(

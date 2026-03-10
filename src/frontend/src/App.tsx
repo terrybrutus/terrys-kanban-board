@@ -212,14 +212,16 @@ function AppInner() {
     useUndoRedo();
 
   // ── Auto-snapshot helper ─────────────────────────────────────────────────────
-  // Silently takes a backend snapshot before destructive actions (fire-and-forget).
-  // Does NOT block the calling action — failures are silently ignored.
+  // Awaits the backend snapshot before allowing the destructive action to proceed.
+  // This ensures the snapshot captures state BEFORE the destruction, not after.
   const autoSnapshot = useCallback(
-    (label: string) => {
+    async (label: string): Promise<void> => {
       if (!actor || !activeUser) return;
-      actor.takeSnapshot(label, activeUser.id).catch(() => {
-        // Silent — auto-snapshots are best-effort
-      });
+      try {
+        await actor.takeSnapshot(label, activeUser.id);
+      } catch {
+        // Silent — auto-snapshots are best-effort; never block the user action
+      }
     },
     [actor, activeUser],
   );
@@ -583,7 +585,7 @@ function AppInner() {
       // In-memory snapshot for session undo + backend auto-snapshot for failsafe
       pushSnapshot({ cards, columns, swimlanes });
       const deletedCard = cards.find((c) => c.id === cardId);
-      autoSnapshot(
+      await autoSnapshot(
         `Before deleting card '${deletedCard?.title ?? String(cardId)}'`,
       );
       try {
@@ -708,7 +710,7 @@ function AppInner() {
         columns.find((c) => c.id === columnId)?.name ?? String(columnId);
       const deletedColCardCount =
         columns.find((c) => c.id === columnId)?.cardIds.length ?? 0;
-      autoSnapshot(
+      await autoSnapshot(
         `Before deleting column '${deletedColName}' · ${deletedColCardCount} card${deletedColCardCount !== 1 ? "s" : ""} moved`,
       );
 
@@ -868,7 +870,7 @@ function AppInner() {
       pushSnapshot({ cards, columns, swimlanes });
       const archivedCardTitle =
         cards.find((c) => c.id === cardId)?.title ?? String(cardId);
-      autoSnapshot(`Before archiving card '${archivedCardTitle}'`);
+      await autoSnapshot(`Before archiving card '${archivedCardTitle}'`);
       try {
         await archiveCard({
           cardId,
@@ -1108,7 +1110,7 @@ function AppInner() {
       const targetColName =
         columns.find((c) => c.id === targetColumnId)?.name ??
         String(targetColumnId);
-      autoSnapshot(
+      await autoSnapshot(
         `Before moving ${cardIds.length} card${cardIds.length !== 1 ? "s" : ""} to '${targetColName}'`,
       );
 
