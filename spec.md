@@ -1,45 +1,34 @@
 # Kanban Board
 
 ## Current State
-Version 23 deployed. Full-featured Kanban board with multi-project support, cards, columns, tags, users, swimlanes, undo/redo, dashboard, tutorial overlay. Four critical bugs remain:
-
-1. **Tutorial overlay**: target element not brought to foreground (no z-index elevation), callout line uses white on light background (not WCAG), tooltip boxes overlap the element they point to, line anchor goes to edge not center of tooltip, tooltip is not offset enough away from target.
-
-2. **Cards disappearing on multi-move**: `moveCards` backend function reads `targetColumn` once and clones its `cardIds` once per loop iteration using the same stale reference — so each card overwrites the previous, leaving only the last card in the target.
-
-3. **Undo/Redo broken**: `handleDeleteCard` and `handleMoveCards` (bulk move) never call `pushUndo`, so undo stack is empty after these operations. Undo button stays unclickable.
-
-4. **Column delete broken**: Backend `deleteColumn` deletes any cards still in the column. When destination migration fails or is skipped, those cards are permanently lost. Undo re-creates the column but can't restore deleted cards. Also `moveCards` bug (issue #2) means migration itself loses cards.
+App is at v37. The filter bar previously had a 'Show Archived' toggle that was removed. Archived cards exist on-chain but are invisible. Export/import does not include checklist items. Snapshot restore works structurally but misses checklists (since snapshots use the same export function). The restore UI shows an infinite spinner with no progress indication. Most mutations use `invalidateQueries` on success which forces a full refetch, causing 1-2s perceived lag on all edits.
 
 ## Requested Changes (Diff)
 
 ### Add
-- Tutorial: cutout/highlight effect so target element visually lifts above dimmed overlay (mix-blend or z-index elevation + bright ring)
-- Tutorial: WCAG-compliant callout line color (dark on light: use `hsl(var(--foreground))` or a strong blue)
-- Tutorial: tooltip positioned with adequate gap from target (at least 40-60px offset), never overlapping target element
-- Tutorial: callout line goes from center-edge of tooltip to center of target element
-- Tutorial: pointer dot lands on edge/boundary of target, not on text content inside it
-- Undo entry for `deleteCard` (undo = restore card, redo = delete again)
-- Undo entry for `handleMoveCards` / bulk move (undo = move back to original columns, redo = move forward again)
+- Show Archived toggle back in FilterBar UI (was removed, field still exists in filter state as `showArchived`)
+- Unarchive button in card modal when viewing an archived card (calls `actor.unarchiveCard` or sets `isArchived: false`)
+- Checklist items in export JSON: per card, call `actor.getChecklistItems(card.id)` and include as `checklists` array on `ExportedCard`
+- Checklist import: after creating each card on import, create its checklist items via `actor.addChecklistItem`
+- Progress bar (0-100%) in SnapshotsPanel during restore, replacing the current indeterminate state
+- Optimistic updates on key mutations: useUpdateCard, useCreateCard, useArchiveCard, useUpdateCardTags, useUpdateCardDueDate — update React Query cache immediately on `onMutate`, rollback on `onError`
 
 ### Modify
-- **Backend `moveCards`**: re-fetch `targetColumn` from `columns` store inside each loop iteration (not once before the loop) so accumulated card IDs are read fresh each time
-- **Backend `deleteColumn`**: before deletion, move all remaining cards to a fallback column OR preserve them in an "orphan" state; do NOT delete cards when column is deleted if `moveCards` was supposed to handle migration already
-- **Frontend `handleDeleteColumn`**: await `moveCards` fully, then refresh columns/cards query before calling `deleteColumn`, with a longer settle delay (500ms); capture full card list snapshot for undo
-- **Frontend `handleMoveCards`**: add `pushUndo` after success with original column IDs per card stored in snapshot
-- **Frontend `handleDeleteCard`**: add `pushUndo` after success (undo = recreate card is impossible without backend support; instead, use archive/restore as a proxy — archive on delete, restore on undo, if backend supports it; otherwise skip undo for permanent delete but at minimum make the button reflect reality)
-- **Tutorial `TutorialCalloutLine`**: change `stroke="white"` to `stroke="#1d4ed8"` (blue-700, WCAG contrast on beige/white backgrounds)
-- **Tutorial `TutorialOverlay`**: add logic to elevate target element z-index while step is active; increase placement offset from `padding/2` to `56px`; compute `tooltipAnchor` as the side-center of tooltip (not top/bottom edge) so line meets tooltip at its wall
-- **Tutorial step placements**: audit steps where tooltip currently overlaps target — especially QuickAdd (step 6), Cards, Columns steps — and switch placements to ensure tooltip is on the far side
+- FilterBar: re-expose `showArchived` toggle in the filter panel UI; include it in `hasActiveFilters` check; add an active filter chip for it
+- exportProjectToString in exportImport.ts: fetch checklist items per card in the parallel `Promise.all`, attach to each ExportedCard
+- importProject in exportImport.ts: after creating each card, create its checklist items sequentially
+- SnapshotsPanel: add `restoreProgress` state (0-100), pass a progress callback into `restoreFromSnapshotJson`, display a Progress bar component during restore
+- restoreFromSnapshotJson / restoreFromSnapshot: accept optional `onProgress: (pct: number) => void` callback, call it at key milestones (wipe complete=20%, tags done=35%, columns done=50%, cards done=85%, checklist/comments done=100%)
+- KanbanCard modal: show an 'Unarchive' button (with ArchiveRestore icon) when `card.isArchived === true`; calls existing unarchive backend method or archiveCard toggle
 
 ### Remove
 - Nothing removed
 
 ## Implementation Plan
-1. Fix Motoko `moveCards` — re-fetch target column inside loop
-2. Fix Motoko `deleteColumn` — do not delete cards; move remaining ones to first available sibling or leave with null columnId
-3. Frontend: fix `handleDeleteColumn` — longer settle, invalidate queries before deleting
-4. Frontend: add `pushUndo` to `handleMoveCards`
-5. Frontend: add `pushUndo` to `handleDeleteCard` (using archive/restore pair)
-6. Frontend: fix tutorial overlay — WCAG line color, z-index elevation for target, tooltip offset, line anchor
-7. Build and validate
+1. **FilterBar.tsx**: Add showArchived checkbox/toggle in filter panel. Add chip in active filters row. Include in hasActiveFilters.
+2. **useQueries.ts**: Add `onMutate` + `cancelQueries` + `setQueryData` optimistic update to useUpdateCard, useCreateCard, useArchiveCard, useUpdateCardTags, useUpdateCardDueDate. Add `onError` rollback. Keep `onSuccess` invalidation for eventual consistency.
+3. **exportImport.ts - exportProjectToString**: In the per-card Promise.all, also fetch `actor.getChecklistItems(card.id)`. Add checklist items to ExportedCard as `checklists: { id, text, checked, order }[]`.
+4. **exportImport.ts - importProject**: After card creation, loop checklist items and call `actor.addChecklistItem`. Also handle `updateChecklistItem` for checked state.
+5. **exportImport.ts - restoreFromSnapshot**: Accept `onProgress` callback. Call at milestones through the restore flow.
+6. **SnapshotsPanel.tsx**: Add `restoreProgress` state. Show `<Progress value={restoreProgress} />` during restore instead of just a spinner. Pass progress callback to restore function.
+7. **KanbanCard.tsx**: When `card.isArchived`, show Unarchive button that calls backend to unarchive. Wire via `onArchive` prop toggle or a new `onUnarchive` prop.

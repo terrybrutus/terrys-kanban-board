@@ -201,6 +201,7 @@ export interface _SERVICE {
   >,
   'setupMasterAdmin' : ActorMethod<[string, string], bigint>,
   'takeSnapshot' : ActorMethod<[string, bigint], bigint>,
+  'storeSnapshot' : ActorMethod<[string, string, bigint], bigint>,
   'updateCard' : ActorMethod<
     [bigint, string, [] | [string], bigint],
     undefined

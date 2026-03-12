@@ -403,6 +403,30 @@ export function useUpdateCard() {
       if (!actor) throw new Error("No actor");
       return actor.updateCard(cardId, title, description, actorUserId);
     },
+    onMutate: async (variables) => {
+      if (!variables.projectId) return { previous: undefined, queryKey: null };
+      const queryKey = ["cards", variables.projectId.toString()];
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData(queryKey);
+      queryClient.setQueryData(
+        queryKey,
+        (old: Card[] | undefined) =>
+          old?.map((c) =>
+            c.id === variables.cardId
+              ? {
+                  ...c,
+                  title: variables.title,
+                  description: variables.description ?? undefined,
+                }
+              : c,
+          ) ?? [],
+      );
+      return { previous, queryKey };
+    },
+    onError: (_err, _vars, context: any) => {
+      if (context?.previous)
+        queryClient.setQueryData(context.queryKey, context.previous);
+    },
     onSuccess: (_data, variables) => {
       if (variables.projectId) {
         queryClient.invalidateQueries({
@@ -434,6 +458,22 @@ export function useDeleteCard() {
     }) => {
       if (!actor) throw new Error("No actor");
       return actor.deleteCard(cardId, actorUserId);
+    },
+    onMutate: async (variables) => {
+      if (!variables.projectId) return { previous: undefined, queryKey: null };
+      const queryKey = ["cards", variables.projectId.toString()];
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData(queryKey);
+      queryClient.setQueryData(
+        queryKey,
+        (old: Card[] | undefined) =>
+          old?.filter((c) => c.id !== variables.cardId) ?? [],
+      );
+      return { previous, queryKey };
+    },
+    onError: (_err, _vars, context: any) => {
+      if (context?.previous)
+        queryClient.setQueryData(context.queryKey, context.previous);
     },
     onSuccess: (_data, variables) => {
       if (variables.projectId) {
@@ -810,6 +850,23 @@ export function useUpdateCardTags() {
       if (!actor) throw new Error("No actor");
       return actor.updateCardTags(cardId, tagIds, actorUserId);
     },
+    onMutate: async (variables) => {
+      const queryKey = ["cards", variables.projectId.toString()];
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData(queryKey);
+      queryClient.setQueryData(
+        queryKey,
+        (old: Card[] | undefined) =>
+          old?.map((c) =>
+            c.id === variables.cardId ? { ...c, tags: variables.tagIds } : c,
+          ) ?? [],
+      );
+      return { previous, queryKey };
+    },
+    onError: (_err, _vars, context: any) => {
+      if (context?.previous)
+        queryClient.setQueryData(context.queryKey, context.previous);
+    },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({
         queryKey: ["tags", variables.projectId.toString()],
@@ -838,6 +895,25 @@ export function useUpdateCardDueDate() {
     }): Promise<void> => {
       if (!actor) throw new Error("No actor");
       return actor.updateCardDueDate(cardId, dueDate, actorUserId);
+    },
+    onMutate: async (variables) => {
+      const queryKey = ["cards", variables.projectId.toString()];
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData(queryKey);
+      queryClient.setQueryData(
+        queryKey,
+        (old: Card[] | undefined) =>
+          old?.map((c) =>
+            c.id === variables.cardId
+              ? { ...c, dueDate: variables.dueDate ?? undefined }
+              : c,
+          ) ?? [],
+      );
+      return { previous, queryKey };
+    },
+    onError: (_err, _vars, context: any) => {
+      if (context?.previous)
+        queryClient.setQueryData(context.queryKey, context.previous);
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({
@@ -1428,6 +1504,24 @@ export function useArchiveCard() {
       if (!actor) throw new Error("No actor");
       return actor.archiveCard(cardId, actorUserId);
     },
+    onMutate: async (variables) => {
+      if (!variables.projectId) return { previous: undefined, queryKey: null };
+      const queryKey = ["cards", variables.projectId.toString()];
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData(queryKey);
+      queryClient.setQueryData(
+        queryKey,
+        (old: Card[] | undefined) =>
+          old?.map((c) =>
+            c.id === variables.cardId ? { ...c, isArchived: true } : c,
+          ) ?? [],
+      );
+      return { previous, queryKey };
+    },
+    onError: (_err, _vars, context: any) => {
+      if (context?.previous)
+        queryClient.setQueryData(context.queryKey, context.previous);
+    },
     onSuccess: (_data, variables) => {
       if (variables.projectId) {
         queryClient.invalidateQueries({
@@ -1465,6 +1559,24 @@ export function useRestoreCard() {
     }): Promise<void> => {
       if (!actor) throw new Error("No actor");
       return actor.restoreCard(cardId, actorUserId);
+    },
+    onMutate: async (variables) => {
+      if (!variables.projectId) return { previous: undefined, queryKey: null };
+      const queryKey = ["cards", variables.projectId.toString()];
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData(queryKey);
+      queryClient.setQueryData(
+        queryKey,
+        (old: Card[] | undefined) =>
+          old?.map((c) =>
+            c.id === variables.cardId ? { ...c, isArchived: false } : c,
+          ) ?? [],
+      );
+      return { previous, queryKey };
+    },
+    onError: (_err, _vars, context: any) => {
+      if (context?.previous)
+        queryClient.setQueryData(context.queryKey, context.previous);
     },
     onSuccess: (_data, variables) => {
       if (variables.projectId) {

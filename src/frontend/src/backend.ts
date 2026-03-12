@@ -254,6 +254,7 @@ export interface backendInterface {
     setMasterAdminSecurityQuestion(question: string, answerHash: string, actorUserId: bigint): Promise<void>;
     setupMasterAdmin(name: string, pinHash: string): Promise<bigint>;
     takeSnapshot(snapshotLabel: string, actorUserId: bigint): Promise<bigint>;
+    storeSnapshot(snapshotLabel: string, data: string, actorUserId: bigint): Promise<bigint>;
     updateCard(cardId: bigint, title: string, description: string | null, actorUserId: bigint): Promise<void>;
     updateCardDueDate(cardId: bigint, dueDate: bigint | null, actorUserId: bigint): Promise<void>;
     updateCardSwimlane(cardId: bigint, swimlaneId: bigint | null, actorUserId: bigint): Promise<void>;
@@ -1185,6 +1186,20 @@ export class Backend implements backendInterface {
             }
         } else {
             const result = await this.actor.takeSnapshot(arg0, arg1);
+            return result;
+        }
+    }
+    async storeSnapshot(arg0: string, arg1: string, arg2: bigint): Promise<bigint> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.storeSnapshot(arg0, arg1, arg2);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.storeSnapshot(arg0, arg1, arg2);
             return result;
         }
     }

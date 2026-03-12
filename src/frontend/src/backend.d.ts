@@ -172,6 +172,7 @@ export interface backendInterface {
     setMasterAdminSecurityQuestion(question: string, answerHash: string, actorUserId: bigint): Promise<void>;
     setupMasterAdmin(name: string, pinHash: string): Promise<bigint>;
     takeSnapshot(snapshotLabel: string, actorUserId: bigint): Promise<bigint>;
+    storeSnapshot(snapshotLabel: string, data: string, actorUserId: bigint): Promise<bigint>;
     updateCard(cardId: bigint, title: string, description: string | null, actorUserId: bigint): Promise<void>;
     updateCardDueDate(cardId: bigint, dueDate: bigint | null, actorUserId: bigint): Promise<void>;
     updateCardSwimlane(cardId: bigint, swimlaneId: bigint | null, actorUserId: bigint): Promise<void>;

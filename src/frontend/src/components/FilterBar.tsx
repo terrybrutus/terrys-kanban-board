@@ -22,7 +22,7 @@ export interface FilterState {
   dateField: "createdAt" | "dueDate" | null;
   dateFrom: string;
   dateTo: string;
-  showArchived: boolean; // kept for internal use but not exposed in UI
+  showArchived: boolean;
 }
 
 export const EMPTY_FILTER: FilterState = {
@@ -58,8 +58,8 @@ export function isFilterActive(filters: FilterState): boolean {
     filters.tagIds.length > 0 ||
     filters.unassignedOnly ||
     filters.textSearch !== "" ||
-    filters.dateField !== null
-    // showArchived intentionally excluded — not surfaced in filter UI
+    filters.dateField !== null ||
+    filters.showArchived
   );
 }
 
@@ -99,6 +99,7 @@ export default function FilterBar({
     filters.unassignedOnly,
     filters.textSearch !== "",
     filters.dateField !== null,
+    filters.showArchived,
   ].filter(Boolean).length;
 
   function patch(partial: Partial<FilterState>) {
@@ -338,6 +339,13 @@ export default function FilterBar({
             color="amber"
           />
         )}
+        {filters.showArchived && (
+          <FilterChip
+            label="Showing archived"
+            onRemove={() => patch({ showArchived: false })}
+            color="rose"
+          />
+        )}
         {filters.tagIds.map((tagId) => {
           const tag = tags.find((t) => t.id.toString() === tagId);
           if (!tag) return null;
@@ -478,6 +486,17 @@ export default function FilterBar({
               />
               <span className="text-xs text-muted-foreground">
                 Unassigned only
+              </span>
+            </label>
+            <label className="flex items-center gap-1.5 cursor-pointer">
+              <input
+                type="checkbox"
+                className="h-3.5 w-3.5 rounded accent-primary"
+                checked={filters.showArchived}
+                onChange={(e) => patch({ showArchived: e.target.checked })}
+              />
+              <span className="text-xs text-muted-foreground">
+                Show archived
               </span>
             </label>
           </div>

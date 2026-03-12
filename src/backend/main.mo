@@ -293,6 +293,33 @@ actor {
     snapshotId;
   };
 
+
+  // Store a pre-built snapshot JSON (built on the frontend using the same queries as export).
+  // This bypasses backend serialization entirely, which was returning empty data.
+  // Any admin can call this so auto-snapshots work for all admin users.
+  public shared ({ caller }) func storeSnapshot(snapshotLabel : Text, data : Text, actorUserId : Nat) : async Nat {
+    if (not isAdmin(actorUserId)) {
+      Runtime.trap("Not authorized");
+    };
+
+    let snapshotId = nextSnapshotId;
+
+    let snapshot : Snapshot = {
+      id = snapshotId;
+      snapshotLabel;
+      takenAt = Time.now();
+      takenByName = getUserName(actorUserId);
+      data;
+    };
+
+    snapshots.add(snapshotId, snapshot);
+    nextSnapshotId += 1;
+
+    enforceSnapshotRetention();
+
+    snapshotId;
+  };
+
   func serializeToJson() : Text {
     let projectJson = serializeProjects();
     let userJson = serializeUsers();

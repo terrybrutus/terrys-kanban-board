@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
@@ -18,11 +19,13 @@ import {
   useGrantSnapshotAccess,
   useRevokeSnapshotAccess,
   useSnapshots,
-  useTakeSnapshot,
   useUsers,
 } from "@/hooks/useQueries";
 import type { User } from "@/hooks/useQueries";
-import { restoreFromSnapshot } from "@/utils/exportImport";
+import {
+  buildSnapshotJson,
+  restoreFromSnapshotJson,
+} from "@/utils/exportImport";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -77,11 +80,12 @@ export default function SnapshotsPanel({
   } | null>(null);
   const [downloadingId, setDownloadingId] = useState<bigint | null>(null);
   const [isRestoring, setIsRestoring] = useState(false);
+  const [restoreProgress, setRestoreProgress] = useState<number | null>(null);
 
   const { data: snapshots = [], isLoading: snapshotsLoading } = useSnapshots();
   const { data: users = [] } = useUsers();
 
-  const { mutateAsync: takeSnapshot, isPending: isTaking } = useTakeSnapshot();
+  const [isTaking, setIsTaking] = useState(false);
   const { mutateAsync: deleteSnapshot, isPending: isDeleting } =
     useDeleteSnapshot();
   const { mutateAsync: grantAccess } = useGrantSnapshotAccess();
@@ -94,18 +98,25 @@ export default function SnapshotsPanel({
   if (!isAdmin) return null;
 
   async function handleTakeSnapshot() {
-    if (!activeUser) {
-      toast.error("No active user");
+    if (!actor || !activeUser || !activeProjectId) {
+      toast.error("No active project or user");
       return;
     }
-    const label = snapshotLabel.trim() || "Manual snapshot";
+    const label =
+      snapshotLabel.trim() ||
+      `Manual snapshot · ${new Date().toLocaleString()}`;
+    setSnapshotLabel("");
+    setShowTakeForm(false);
+    setIsTaking(true);
     try {
-      await takeSnapshot({ snapshotLabel: label, actorUserId: activeUser.id });
-      toast.success(`Snapshot "${label}" saved`);
-      setSnapshotLabel("");
-      setShowTakeForm(false);
+      const jsonStr = await buildSnapshotJson(actor, activeProjectId, label);
+      await actor.storeSnapshot(label, jsonStr, activeUser.id);
+      await queryClient.invalidateQueries({ queryKey: ["snapshots"] });
+      toast.success("Snapshot saved");
     } catch (e) {
-      toast.error(`Failed to take snapshot: ${String(e)}`);
+      toast.error(`Snapshot failed: ${String(e)}`);
+    } finally {
+      setIsTaking(false);
     }
   }
 
@@ -149,6 +160,7 @@ export default function SnapshotsPanel({
     }
 
     setIsRestoring(true);
+    setRestoreProgress(0);
     setRestoreTarget(null);
 
     try {
@@ -158,12 +170,13 @@ export default function SnapshotsPanel({
         return;
       }
 
-      // Use the dedicated snapshot restore function (handles the raw backend format)
-      const result = await restoreFromSnapshot(
+      // Use the dedicated snapshot restore function (handles both export and legacy formats)
+      const result = await restoreFromSnapshotJson(
         actor,
         json,
         targetProjectId,
         activeUser.id,
+        (pct) => setRestoreProgress(pct),
       );
 
       // Invalidate all queries so board refreshes immediately
@@ -188,6 +201,7 @@ export default function SnapshotsPanel({
       toast.error(`Restore failed: ${String(e)}`);
     } finally {
       setIsRestoring(false);
+      setRestoreProgress(null);
     }
   }
 
@@ -517,6 +531,14 @@ export default function SnapshotsPanel({
               state first if you want to preserve it.
             </p>
           </div>
+          {isRestoring && restoreProgress !== null && (
+            <div className="px-1 pb-2 space-y-1">
+              <Progress value={restoreProgress} className="h-2 w-full" />
+              <p className="text-xs text-center text-muted-foreground">
+                {restoreProgress}% complete
+              </p>
+            </div>
+          )}
           <DialogFooter className="gap-2">
             <Button
               variant="ghost"
@@ -535,7 +557,9 @@ export default function SnapshotsPanel({
               {isRestoring ? (
                 <>
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  Restoring…
+                  {restoreProgress !== null
+                    ? `Restoring… ${restoreProgress}%`
+                    : "Restoring…"}
                 </>
               ) : (
                 <>

@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Toaster } from "@/components/ui/sonner";
+import { buildSnapshotJson } from "@/utils/exportImport";
 import {
   DndContext,
   type DragEndEvent,
@@ -216,14 +217,21 @@ function AppInner() {
   // This ensures the snapshot captures state BEFORE the destruction, not after.
   const autoSnapshot = useCallback(
     async (label: string): Promise<void> => {
-      if (!actor || !activeUser) return;
+      if (!actor || !activeUser || !activeProjectId) return;
       try {
-        await actor.takeSnapshot(label, activeUser.id);
+        const projectName =
+          projects.find((p) => p.id === activeProjectId)?.name ?? "Project";
+        const jsonStr = await buildSnapshotJson(
+          actor,
+          activeProjectId,
+          projectName,
+        );
+        await actor.storeSnapshot(label, jsonStr, activeUser.id);
       } catch {
         // Silent — auto-snapshots are best-effort; never block the user action
       }
     },
-    [actor, activeUser],
+    [actor, activeUser, activeProjectId, projects],
   );
 
   // ── Undo/Redo keyboard shortcuts ────────────────────────────────────────────

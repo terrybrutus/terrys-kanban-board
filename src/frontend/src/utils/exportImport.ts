@@ -460,6 +460,12 @@ export interface ExportedCard {
   createdAt: string;
   comments: ExportedComment[];
   history: ExportedRevision[];
+  checklists?: Array<{
+    id: string;
+    text: string;
+    checked: boolean;
+    order: number;
+  }>;
 }
 
 export interface ExportedComment {
@@ -587,14 +593,24 @@ export async function exportProjectToString(
   const cardMap = new Map(cards.map((c) => [c.id.toString(), c]));
   const cardDataMap = new Map<
     string,
-    { comments: ExportedComment[]; history: ExportedRevision[] }
+    {
+      comments: ExportedComment[];
+      history: ExportedRevision[];
+      checklists: Array<{
+        id: string;
+        text: string;
+        checked: boolean;
+        order: number;
+      }>;
+    }
   >();
 
   await Promise.all(
     cards.map(async (card) => {
-      const [comments, cardRevisions] = await Promise.all([
+      const [comments, cardRevisions, checklistItems] = await Promise.all([
         actor.getCardComments(card.id),
         actor.getCardRevisions(card.id),
+        actor.getChecklistItems(card.id),
       ]);
       cardDataMap.set(card.id.toString(), {
         comments: comments.map((c) => ({
@@ -603,6 +619,12 @@ export async function exportProjectToString(
           authorName: c.authorName,
           text: c.text,
           timestamp: bigintNsToIso(c.timestamp),
+        })),
+        checklists: checklistItems.map((ci) => ({
+          id: ci.id.toString(),
+          text: ci.text,
+          checked: ci.isDone,
+          order: Number(ci.order),
         })),
         history: cardRevisions.map((r) => ({
           id: r.id.toString(),
@@ -623,6 +645,7 @@ export async function exportProjectToString(
         const cardData = cardDataMap.get(card.id.toString()) ?? {
           comments: [],
           history: [],
+          checklists: [],
         };
         return {
           id: card.id.toString(),
@@ -638,9 +661,10 @@ export async function exportProjectToString(
           createdAt: bigintNsToIso(card.createdAt),
           comments: cardData.comments,
           history: cardData.history,
-        } satisfies ExportedCard;
+          checklists: cardData?.checklists ?? [],
+        };
       })
-      .filter((c): c is ExportedCard => c !== null);
+      .filter((c) => c !== null) as ExportedCard[];
     return { id: col.id.toString(), name: col.name, cards: colCards };
   });
 
@@ -1179,6 +1203,36 @@ export async function importProject(
               );
             }
           }
+
+          // Import checklists
+          if (Array.isArray(card.checklists) && card.checklists.length > 0) {
+            for (const item of card.checklists as Array<{
+              id: string;
+              text: string;
+              checked: boolean;
+              order: number;
+            }>) {
+              try {
+                const newItemId = await actor.addChecklistItem(
+                  newCardId,
+                  item.text ?? "",
+                  activeUserId,
+                );
+                if (item.checked) {
+                  await actor
+                    .updateChecklistItem(
+                      newItemId,
+                      item.text ?? "",
+                      true,
+                      activeUserId,
+                    )
+                    .catch(() => {});
+                }
+              } catch {
+                // non-fatal
+              }
+            }
+          }
         } catch (e) {
           result.errors.push(
             `Failed to import card "${card.title ?? "Untitled"}": ${String(e)}`,
@@ -1261,5 +1315,297 @@ export async function importProject(
     result.success = false;
   }
 
+  return result;
+}
+
+// ─── Snapshot Helpers (Frontend-built JSON) ───────────────────────────────────
+
+/**
+ * Build a snapshot JSON string using the same frontend export logic.
+ * This ensures snapshots capture the same data as the working export.
+ */
+export async function buildSnapshotJson(
+  actor: backendInterface,
+  projectId: bigint,
+  projectName: string,
+): Promise<string> {
+  return exportProjectToString(actor, projectId, projectName);
+}
+
+/**
+ * Restore from a snapshot JSON string. Handles both:
+ * - Export format (has 'project' key) — the new frontend-built format
+ * - Old flat format (has 'projects' array) — legacy backend serialization
+ */
+export async function restoreFromSnapshotJson(
+  actor: backendInterface,
+  snapshotJson: string,
+  targetProjectId: bigint,
+  activeUserId: bigint,
+  onProgress?: (pct: number) => void,
+): Promise<SnapshotRestoreResult> {
+  const result: SnapshotRestoreResult = {
+    success: false,
+    errors: [],
+    warnings: [],
+    counts: {
+      columnsRestored: 0,
+      cardsRestored: 0,
+      tagsRestored: 0,
+      swimlanesRestored: 0,
+    },
+  };
+
+  let raw: unknown;
+  try {
+    raw = JSON.parse(snapshotJson);
+  } catch {
+    result.errors.push("Snapshot data is corrupted — could not parse JSON.");
+    return result;
+  }
+
+  if (
+    raw &&
+    typeof raw === "object" &&
+    "project" in (raw as Record<string, unknown>)
+  ) {
+    // Export format — restore directly
+    const exported = (raw as KanbanExport).project;
+    return performDirectRestore(
+      actor,
+      exported,
+      targetProjectId,
+      activeUserId,
+      result,
+      onProgress,
+    );
+  }
+
+  // Old flat format — fall back to existing handler
+  return restoreFromSnapshot(
+    actor,
+    snapshotJson,
+    targetProjectId,
+    activeUserId,
+  );
+}
+
+async function performDirectRestore(
+  actor: backendInterface,
+  exported: ExportedProject,
+  targetProjectId: bigint,
+  activeUserId: bigint,
+  result: SnapshotRestoreResult,
+  onProgress?: (pct: number) => void,
+): Promise<SnapshotRestoreResult> {
+  const columns = exported.columns ?? [];
+
+  if (columns.length === 0) {
+    result.errors.push(
+      "This snapshot contains 0 columns — restore aborted. Your board data has NOT been changed. The snapshot may have been captured after the board was already empty. Try restoring an earlier snapshot.",
+    );
+    return result;
+  }
+
+  // Wipe existing data
+  const [existingColumns, existingTags, existingPresets, existingSwimlanes] =
+    await Promise.all([
+      actor
+        .getColumns(targetProjectId)
+        .catch(() => [] as Awaited<ReturnType<typeof actor.getColumns>>),
+      actor
+        .getProjectTags(targetProjectId)
+        .catch(() => [] as Awaited<ReturnType<typeof actor.getProjectTags>>),
+      actor
+        .getFilterPresets(targetProjectId)
+        .catch(() => [] as Awaited<ReturnType<typeof actor.getFilterPresets>>),
+      actor
+        .getSwimlanes(targetProjectId)
+        .catch(() => [] as Awaited<ReturnType<typeof actor.getSwimlanes>>),
+    ]);
+
+  await Promise.all(
+    existingColumns.map((col) =>
+      actor.deleteColumn(col.id, activeUserId).catch(() => {}),
+    ),
+  );
+  await Promise.all(
+    existingTags.map((tag) =>
+      actor.deleteTag(tag.id, activeUserId).catch(() => {}),
+    ),
+  );
+  await Promise.all(
+    existingPresets.map((p) =>
+      actor.deleteFilterPreset(p.id, activeUserId).catch(() => {}),
+    ),
+  );
+  await Promise.all(
+    existingSwimlanes.map((sl) =>
+      actor.deleteSwimlane(sl.id, activeUserId).catch(() => {}),
+    ),
+  );
+  onProgress?.(20);
+
+  // Restore tags
+  const tagIdMap = new Map<string, bigint>();
+  for (const tag of exported.tags ?? []) {
+    try {
+      const newId = await actor.createTag(
+        targetProjectId,
+        tag.name,
+        tag.color,
+        activeUserId,
+      );
+      tagIdMap.set(tag.id, newId);
+      result.counts.tagsRestored++;
+    } catch (e) {
+      result.warnings.push(`Could not restore tag "${tag.name}": ${String(e)}`);
+    }
+  }
+  onProgress?.(35);
+
+  // Restore swimlanes
+  const swimlaneIdMap = new Map<string, bigint>();
+  const exportedSwimlanes = exported.swimlanes ?? [];
+  for (const sl of exportedSwimlanes) {
+    try {
+      const newId = await actor.createSwimlane(
+        targetProjectId,
+        sl.name,
+        activeUserId,
+      );
+      swimlaneIdMap.set(sl.id, newId);
+      result.counts.swimlanesRestored++;
+    } catch (e) {
+      result.warnings.push(
+        `Could not restore swimlane "${sl.name}": ${String(e)}`,
+      );
+    }
+  }
+  if (
+    exportedSwimlanes.some((sl) => sl.active !== false) &&
+    swimlaneIdMap.size > 0
+  ) {
+    await actor.enableSwimlanes(targetProjectId, activeUserId).catch(() => {});
+  }
+
+  // Resolve users by name
+  const existingUsers = await actor
+    .getUsers()
+    .catch(() => [] as Awaited<ReturnType<typeof actor.getUsers>>);
+  const userNameToId = new Map(
+    existingUsers.map((u) => [u.name.toLowerCase(), u.id]),
+  );
+
+  // Restore columns and cards
+  for (const col of columns) {
+    try {
+      const newColId = await actor.createColumn(
+        col.name,
+        activeUserId,
+        targetProjectId,
+      );
+      result.counts.columnsRestored++;
+      onProgress?.(50);
+
+      if ((col as ExportedColumn & { isComplete?: boolean }).isComplete) {
+        await actor
+          .setColumnComplete(newColId, true, activeUserId)
+          .catch(() => {});
+      }
+
+      for (const card of col.cards ?? []) {
+        try {
+          const newCardId = await actor.createCard(
+            card.title,
+            card.description ?? null,
+            newColId,
+            activeUserId,
+            targetProjectId,
+          );
+
+          if (card.assigneeName) {
+            const userId = userNameToId.get(card.assigneeName.toLowerCase());
+            if (userId != null) {
+              await actor
+                .assignCard(newCardId, userId, activeUserId)
+                .catch(() => {});
+            }
+          }
+
+          if (card.tags && card.tags.length > 0) {
+            const newTagIds = card.tags
+              .map((tid) => tagIdMap.get(tid))
+              .filter((id): id is bigint => id != null);
+            if (newTagIds.length > 0) {
+              await actor
+                .updateCardTags(newCardId, newTagIds, activeUserId)
+                .catch(() => {});
+            }
+          }
+
+          if (card.dueDate) {
+            try {
+              const ms = new Date(card.dueDate).getTime();
+              if (!Number.isNaN(ms)) {
+                await actor
+                  .updateCardDueDate(
+                    newCardId,
+                    BigInt(ms) * 1_000_000n,
+                    activeUserId,
+                  )
+                  .catch(() => {});
+              }
+            } catch {
+              /* ignore */
+            }
+          }
+
+          // Restore checklists
+          if (Array.isArray(card.checklists) && card.checklists.length > 0) {
+            for (const item of card.checklists as Array<{
+              id: string;
+              text: string;
+              checked: boolean;
+              order: number;
+            }>) {
+              try {
+                const newItemId = await actor.addChecklistItem(
+                  newCardId,
+                  item.text ?? "",
+                  activeUserId,
+                );
+                if (item.checked) {
+                  await actor
+                    .updateChecklistItem(
+                      newItemId,
+                      item.text ?? "",
+                      true,
+                      activeUserId,
+                    )
+                    .catch(() => {});
+                }
+              } catch {
+                /* ignore */
+              }
+            }
+          }
+
+          result.counts.cardsRestored++;
+        } catch (e) {
+          result.warnings.push(
+            `Could not restore card "${card.title}": ${String(e)}`,
+          );
+        }
+      }
+    } catch (e) {
+      result.errors.push(
+        `Could not restore column "${col.name}": ${String(e)}`,
+      );
+    }
+  }
+
+  onProgress?.(100);
+  result.success = result.errors.length === 0;
   return result;
 }

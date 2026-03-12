@@ -209,6 +209,7 @@ export const idlService = IDL.Service({
     ),
   'setupMasterAdmin' : IDL.Func([IDL.Text, IDL.Text], [IDL.Nat], []),
   'takeSnapshot' : IDL.Func([IDL.Text, IDL.Nat], [IDL.Nat], []),
+  'storeSnapshot' : IDL.Func([IDL.Text, IDL.Text, IDL.Nat], [IDL.Nat], []),
   'updateCard' : IDL.Func(
       [IDL.Nat, IDL.Text, IDL.Opt(IDL.Text), IDL.Nat],
       [],
@@ -437,6 +438,7 @@ export const idlFactory = ({ IDL }) => {
       ),
     'setupMasterAdmin' : IDL.Func([IDL.Text, IDL.Text], [IDL.Nat], []),
     'takeSnapshot' : IDL.Func([IDL.Text, IDL.Nat], [IDL.Nat], []),
+  'storeSnapshot' : IDL.Func([IDL.Text, IDL.Text, IDL.Nat], [IDL.Nat], []),
     'updateCard' : IDL.Func(
         [IDL.Nat, IDL.Text, IDL.Opt(IDL.Text), IDL.Nat],
         [],
