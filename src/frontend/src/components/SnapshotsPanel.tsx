@@ -61,6 +61,15 @@ function formatSnapshotDate(takenAt: bigint): string {
   });
 }
 
+// Parse [pid:X] prefix from snapshot labels
+function parsePid(label: string): { pid: string | null; display: string } {
+  const m = label.match(/^\[pid:(\d+)\]\s*/);
+  if (m) {
+    return { pid: m[1], display: label.slice(m[0].length) };
+  }
+  return { pid: null, display: label };
+}
+
 export default function SnapshotsPanel({
   activeUser,
   actor,
@@ -110,7 +119,8 @@ export default function SnapshotsPanel({
     setIsTaking(true);
     try {
       const jsonStr = await buildSnapshotJson(actor, activeProjectId, label);
-      await actor.storeSnapshot(label, jsonStr, activeUser.id);
+      const labelWithPid = `[pid:${activeProjectId}] ${label}`;
+      await actor.storeSnapshot(labelWithPid, jsonStr, activeUser.id);
       await queryClient.invalidateQueries({ queryKey: ["snapshots"] });
       toast.success("Snapshot saved");
     } catch (e) {
@@ -250,7 +260,13 @@ export default function SnapshotsPanel({
             Snapshots
           </h2>
           <span className="text-xs text-muted-foreground bg-secondary px-2 py-0.5 rounded-full">
-            {snapshots.length} / 30 max
+            {activeProjectId
+              ? snapshots.filter((s) => {
+                  const { pid } = parsePid(s.snapshotLabel || "");
+                  return !pid || pid === String(activeProjectId);
+                }).length
+              : snapshots.length}{" "}
+            / 30 max
           </span>
         </div>
         {isAdmin && !showTakeForm && (
@@ -351,7 +367,15 @@ export default function SnapshotsPanel({
           <div className="space-y-2 pr-2">
             {[...snapshots]
               .sort((a, b) => Number(b.takenAt - a.takenAt))
+              .filter((snap) => {
+                const { pid } = parsePid(snap.snapshotLabel || "");
+                if (!pid) return true; // legacy snapshots without prefix: show for all projects
+                return activeProjectId ? pid === String(activeProjectId) : true;
+              })
               .map((snap, idx) => {
+                const { display: displayLabel } = parsePid(
+                  snap.snapshotLabel || "",
+                );
                 const dateStr = formatSnapshotDate(snap.takenAt);
                 const isDownloading = downloadingId === snap.id;
                 return (
@@ -362,7 +386,7 @@ export default function SnapshotsPanel({
                   >
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-foreground truncate">
-                        {snap.snapshotLabel || "Manual snapshot"}
+                        {displayLabel || "Manual snapshot"}
                       </p>
                       <div className="flex items-center gap-3 mt-0.5">
                         <span className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -383,7 +407,10 @@ export default function SnapshotsPanel({
                         variant="ghost"
                         className="h-7 w-7 p-0"
                         onClick={() =>
-                          handleDownloadSnapshot(snap.id, snap.snapshotLabel)
+                          handleDownloadSnapshot(
+                            snap.id,
+                            displayLabel || snap.snapshotLabel,
+                          )
                         }
                         disabled={isDownloading}
                         title="Download snapshot as JSON"
@@ -405,7 +432,7 @@ export default function SnapshotsPanel({
                           onClick={() =>
                             setRestoreTarget({
                               id: snap.id,
-                              label: snap.snapshotLabel || "Manual snapshot",
+                              label: displayLabel || "Manual snapshot",
                               date: dateStr,
                             })
                           }
@@ -427,7 +454,7 @@ export default function SnapshotsPanel({
                           onClick={() =>
                             setDeleteTarget({
                               id: snap.id,
-                              label: snap.snapshotLabel || "Manual snapshot",
+                              label: displayLabel || "Manual snapshot",
                             })
                           }
                           title="Delete snapshot"

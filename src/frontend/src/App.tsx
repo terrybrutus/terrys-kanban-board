@@ -48,7 +48,6 @@ import {
   Loader2,
   Plus,
   Redo2,
-  RefreshCw,
   Shield,
   Tag,
   Undo2,
@@ -133,19 +132,8 @@ export default function App() {
 function AppInner() {
   const { actor, isFetching: actorFetching } = useActor();
   const queryClient = useQueryClient();
-  const [isRefreshing, setIsRefreshing] = useState(false);
-
   // ── Access key gate ─────────────────────────────────────────────────────────
   const [gateUnlocked, setGateUnlocked] = useState(false);
-
-  async function handleRefresh() {
-    setIsRefreshing(true);
-    try {
-      await queryClient.invalidateQueries();
-    } finally {
-      setIsRefreshing(false);
-    }
-  }
 
   // ── Admin setup check ───────────────────────────────────────────────────────
   const { data: isAdminSetupDone, isLoading: isAdminSetupLoading } =
@@ -226,7 +214,11 @@ function AppInner() {
           activeProjectId,
           projectName,
         );
-        await actor.storeSnapshot(label, jsonStr, activeUser.id);
+        await actor.storeSnapshot(
+          `[pid:${activeProjectId}] ${label}`,
+          jsonStr,
+          activeUser.id,
+        );
       } catch {
         // Silent — auto-snapshots are best-effort; never block the user action
       }
@@ -410,6 +402,22 @@ function AppInner() {
       setHiddenColumnIds(new Set());
     }
   }, [hiddenColsKey]);
+
+  // Reconcile hidden column IDs against columns that actually exist
+  useEffect(() => {
+    if (!columns || columns.length === 0) return;
+    const validIds = new Set(columns.map((c) => c.id.toString()));
+    setHiddenColumnIds((prev) => {
+      const reconciled = new Set([...prev].filter((id) => validIds.has(id)));
+      if (reconciled.size !== prev.size) {
+        try {
+          localStorage.setItem(hiddenColsKey, JSON.stringify([...reconciled]));
+        } catch {}
+        return reconciled;
+      }
+      return prev;
+    });
+  }, [columns, hiddenColsKey]);
 
   function hideColumn(columnId: bigint) {
     setHiddenColumnIds((prev) => {
@@ -2007,19 +2015,6 @@ function AppInner() {
             </>
           )}
 
-          {/* Manual refresh button */}
-          <button
-            type="button"
-            onClick={handleRefresh}
-            disabled={isRefreshing}
-            className="flex items-center gap-1 px-2.5 py-1.5 rounded-md text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors disabled:opacity-50 disabled:pointer-events-none"
-            title="Refresh board"
-          >
-            <RefreshCw
-              className={`h-3.5 w-3.5 ${isRefreshing ? "animate-spin" : ""}`}
-            />
-          </button>
-
           {/* Tags button — admin only, shown on board tab */}
           {isAdminUser && activeTab === "board" && activeProjectId && (
             <button
@@ -2033,8 +2028,8 @@ function AppInner() {
             </button>
           )}
 
-          {/* Swimlanes button — visible to all users on board tab */}
-          {activeTab === "board" && activeProjectId && (
+          {/* Swimlanes button — admin only */}
+          {isAdminUser && activeTab === "board" && activeProjectId && (
             <button
               type="button"
               onClick={() => setShowSwimlanesModal(true)}

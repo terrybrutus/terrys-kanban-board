@@ -369,6 +369,35 @@ export function useCreateCard() {
         projectId,
       );
     },
+    onMutate: async (variables) => {
+      const queryKey = ["cards", variables.projectId.toString()];
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData(queryKey);
+      // Optimistically append a placeholder card (temp id)
+      queryClient.setQueryData(queryKey, (old: Card[] | undefined) => {
+        const tempCard: Card = {
+          id: BigInt(-Date.now()),
+          title: variables.title,
+          description: variables.description ?? undefined,
+          columnId: variables.columnId,
+          projectId: variables.projectId,
+          order: 9999n,
+          assigneeId: undefined,
+          dueDate: undefined,
+          tags: [],
+          isArchived: false,
+          swimlaneId: undefined,
+          createdAt: BigInt(Date.now()),
+          updatedAt: BigInt(Date.now()),
+        } as unknown as Card;
+        return [...(old ?? []), tempCard];
+      });
+      return { previous, queryKey };
+    },
+    onError: (_err, _vars, context: any) => {
+      if (context?.previous)
+        queryClient.setQueryData(context.queryKey, context.previous);
+    },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({
         queryKey: ["cards", variables.projectId.toString()],

@@ -7,7 +7,8 @@
     "core-infrastructure": "1.0.3",
     "shadcn-ui": "1.0.0",
     "build-template-react": "1.1.0",
-    "initial-app": "1.0.0"
+    "initial-app": "1.0.0",
+    "github-export-icp-cli": "1.0.1"
   },
   "tags": [],
   "aiCoreVersion": "0.dev"

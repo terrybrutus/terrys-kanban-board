@@ -51,6 +51,7 @@ import {
   useChecklistItems,
   useDeleteChecklistItem,
   useDeleteComment,
+  useReorderChecklistItems,
   useUpdateChecklistItem,
 } from "../hooks/useQueries";
 import type { User } from "../hooks/useQueries";
@@ -226,6 +227,15 @@ function KanbanCardInner({
   const [showChecklist, setShowChecklist] = useState(true);
   const [newChecklistItem, setNewChecklistItem] = useState("");
   const [isAddingChecklistItem, setIsAddingChecklistItem] = useState(false);
+  const [showUnsavedDialog, setShowUnsavedDialog] = useState(false);
+  const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const [editingItemText, setEditingItemText] = useState("");
+  const [draggingItemId, setDraggingItemId] = useState<string | null>(null);
+  const [dragOverItemId, setDragOverItemId] = useState<string | null>(null);
+
+  // isDirty: user has changed title or description
+  const isDirty =
+    editTitle !== card.title || editDesc !== (card.description ?? "");
 
   // Hooks for comments & history — only load when modal is open
   const { data: comments = [], isLoading: commentsLoading } = useCardComments(
@@ -244,6 +254,7 @@ function KanbanCardInner({
     useChecklistItems(modalOpen ? card.id : null);
   const { mutateAsync: addChecklistItem } = useAddChecklistItem();
   const { mutateAsync: updateChecklistItem } = useUpdateChecklistItem();
+  const { mutateAsync: reorderChecklistItems } = useReorderChecklistItems();
   const { mutateAsync: deleteChecklistItem } = useDeleteChecklistItem();
 
   async function handleSwimlaneChange(value: string) {
@@ -495,6 +506,12 @@ function KanbanCardInner({
               e.stopPropagation();
               onToggleSelect?.(e);
             }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.stopPropagation();
+                onToggleSelect?.(e as unknown as React.MouseEvent);
+              }
+            }}
             aria-label={isSelected ? "Deselect card" : "Select card"}
             title={isSelected ? "Deselect" : "Select card (for bulk actions)"}
           >
@@ -676,7 +693,8 @@ function KanbanCardInner({
               <button
                 type="button"
                 className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
-                onClick={(e) => {
+                onClick={() => {}}
+                onKeyDown={(e) => {
                   e.stopPropagation();
                   onMoveLeft();
                 }}
@@ -690,7 +708,8 @@ function KanbanCardInner({
               <button
                 type="button"
                 className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
-                onClick={(e) => {
+                onClick={() => {}}
+                onKeyDown={(e) => {
                   e.stopPropagation();
                   onMoveRight();
                 }}
@@ -703,7 +722,8 @@ function KanbanCardInner({
             <button
               type="button"
               className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-              onClick={(e) => {
+              onClick={() => {}}
+              onKeyDown={(e) => {
                 e.stopPropagation();
                 setDeleteConfirmOpen(true);
               }}
@@ -715,7 +735,8 @@ function KanbanCardInner({
             <button
               type="button"
               className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground transition-colors"
-              onClick={(e) => {
+              onClick={() => {}}
+              onKeyDown={(e) => {
                 e.stopPropagation();
                 openModal();
               }}
@@ -759,7 +780,8 @@ function KanbanCardInner({
             <Button
               variant="destructive"
               className="w-full gap-1.5"
-              onClick={(e) => {
+              onClick={() => {}}
+              onKeyDown={(e) => {
                 // Prevent form/dialog default submission on Enter
                 e.preventDefault();
                 setDeleteConfirmOpen(false);
@@ -782,8 +804,61 @@ function KanbanCardInner({
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* Unsaved Changes Dialog */}
+      <AlertDialog open={showUnsavedDialog} onOpenChange={setShowUnsavedDialog}>
+        <AlertDialogContent className="max-w-sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-base font-semibold">
+              Unsaved changes
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-sm">
+              You have unsaved changes to the title or description. Save them
+              before closing?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setShowUnsavedDialog(false);
+                setEditTitle(card.title);
+                setEditDesc(card.description ?? "");
+                setModalOpen(false);
+              }}
+              data-ocid="card.modal.cancel_button"
+            >
+              Discard
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => {
+                setShowUnsavedDialog(false);
+                handleSave();
+              }}
+              disabled={!editTitle.trim() || isSaving}
+              data-ocid="card.modal.save_button"
+            >
+              {isSaving ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+              ) : null}
+              Save
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Card Detail Modal */}
-      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
+      <Dialog
+        open={modalOpen}
+        onOpenChange={(open) => {
+          if (!open && isDirty) {
+            setShowUnsavedDialog(true);
+          } else {
+            setModalOpen(open);
+          }
+        }}
+      >
         <DialogContent className="max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col gap-0 p-0">
           {/* Modal header with title + tags */}
           <DialogHeader className="px-6 pt-5 pb-4 border-b border-border shrink-0">
@@ -796,7 +871,10 @@ function KanbanCardInner({
                   onChange={(e) => setEditTitle(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") handleSave();
-                    if (e.key === "Escape") setModalOpen(false);
+                    if (e.key === "Escape") {
+                      if (isDirty) setShowUnsavedDialog(true);
+                      else setModalOpen(false);
+                    }
                   }}
                   placeholder="Card title"
                   className="text-base font-semibold border-0 border-b border-border/40 rounded-none px-0 focus-visible:ring-0 focus-visible:border-primary bg-transparent h-auto py-1"
@@ -860,7 +938,10 @@ function KanbanCardInner({
                   value={editDesc}
                   onChange={(e) => setEditDesc(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === "Escape") setModalOpen(false);
+                    if (e.key === "Escape") {
+                      if (isDirty) setShowUnsavedDialog(true);
+                      else setModalOpen(false);
+                    }
                   }}
                   placeholder="Add a description… (optional)"
                   rows={3}
@@ -982,32 +1063,8 @@ function KanbanCardInner({
                   )}
               </div>
 
-              {/* Save/Cancel + Archive */}
+              {/* Archive */}
               <div className="flex gap-2 pt-1 flex-wrap">
-                <Button
-                  size="sm"
-                  className="h-8 text-xs px-4"
-                  onClick={handleSave}
-                  disabled={!editTitle.trim() || isSaving}
-                >
-                  {isSaving ? (
-                    <>
-                      <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                      Saving…
-                    </>
-                  ) : (
-                    "Save changes"
-                  )}
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-8 text-xs px-3"
-                  onClick={() => setModalOpen(false)}
-                  disabled={isSaving}
-                >
-                  Cancel
-                </Button>
                 <div className="flex-1" />
                 {/* Archive / Restore */}
                 {activeUser &&
@@ -1094,44 +1151,147 @@ function KanbanCardInner({
                     ) : (
                       [...checklistItems]
                         .sort((a, b) => Number(a.order - b.order))
-                        .map((item) => (
-                          <div
-                            key={item.id.toString()}
-                            className="group/ci flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-secondary/40 transition-colors"
-                          >
-                            <Checkbox
-                              id={`ci-${item.id}`}
-                              checked={item.isDone}
-                              onCheckedChange={() =>
-                                handleToggleChecklistItem(
-                                  item.id,
-                                  item.text,
-                                  item.isDone,
+                        .map((item, idx, sorted) => {
+                          const itemIdStr = item.id.toString();
+                          const isEditing = editingItemId === itemIdStr;
+                          const isDragOver = dragOverItemId === itemIdStr;
+                          return (
+                            <div
+                              key={itemIdStr}
+                              draggable={!!activeUser}
+                              onDragStart={() => setDraggingItemId(itemIdStr)}
+                              onDragEnd={() => {
+                                setDraggingItemId(null);
+                                setDragOverItemId(null);
+                              }}
+                              onDragOver={(e) => {
+                                e.preventDefault();
+                                setDragOverItemId(itemIdStr);
+                              }}
+                              onDrop={(e) => {
+                                e.preventDefault();
+                                if (
+                                  !draggingItemId ||
+                                  draggingItemId === itemIdStr
                                 )
-                              }
-                              disabled={!activeUser}
-                              className="shrink-0"
-                            />
-                            <label
-                              htmlFor={`ci-${item.id}`}
-                              className={`flex-1 text-xs cursor-pointer select-none ${item.isDone ? "line-through text-muted-foreground" : "text-foreground"}`}
-                            >
-                              {item.text}
-                            </label>
-                            {activeUser && (
-                              <button
-                                type="button"
-                                className="opacity-0 group-hover/ci:opacity-100 transition-opacity h-5 w-5 flex items-center justify-center rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 shrink-0"
-                                onClick={() =>
-                                  handleDeleteChecklistItem(item.id)
+                                  return;
+                                const fromIdx = sorted.findIndex(
+                                  (i) => i.id.toString() === draggingItemId,
+                                );
+                                const toIdx = idx;
+                                if (fromIdx === -1 || fromIdx === toIdx) return;
+                                const reordered = [...sorted];
+                                const [moved] = reordered.splice(fromIdx, 1);
+                                reordered.splice(toIdx, 0, moved);
+                                if (activeUser) {
+                                  reorderChecklistItems({
+                                    cardId: card.id,
+                                    newOrder: reordered.map((ci) => ci.id),
+                                    actorUserId: activeUser.id,
+                                  });
                                 }
-                                title="Remove item"
-                              >
-                                <Trash2 className="h-3 w-3" />
-                              </button>
-                            )}
-                          </div>
-                        ))
+                                setDraggingItemId(null);
+                                setDragOverItemId(null);
+                              }}
+                              className={`group/ci flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-secondary/40 transition-colors ${isDragOver ? "border-t-2 border-blue-500" : ""}`}
+                            >
+                              {activeUser && (
+                                <GripVertical className="h-3.5 w-3.5 text-muted-foreground/50 cursor-grab shrink-0" />
+                              )}
+                              <Checkbox
+                                id={`ci-${item.id}`}
+                                checked={item.isDone}
+                                onCheckedChange={() =>
+                                  handleToggleChecklistItem(
+                                    item.id,
+                                    item.text,
+                                    item.isDone,
+                                  )
+                                }
+                                disabled={!activeUser}
+                                className="shrink-0"
+                              />
+                              {isEditing ? (
+                                <Input
+                                  value={editingItemText}
+                                  onChange={(e) =>
+                                    setEditingItemText(e.target.value)
+                                  }
+                                  onBlur={() => {
+                                    if (
+                                      editingItemText.trim() &&
+                                      editingItemText !== item.text
+                                    ) {
+                                      updateChecklistItem({
+                                        itemId: item.id,
+                                        text: editingItemText.trim(),
+                                        isDone: item.isDone,
+                                        actorUserId: activeUser!.id,
+                                        cardId: card.id,
+                                      });
+                                    }
+                                    setEditingItemId(null);
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                      e.preventDefault();
+                                      if (
+                                        editingItemText.trim() &&
+                                        editingItemText !== item.text
+                                      ) {
+                                        updateChecklistItem({
+                                          itemId: item.id,
+                                          text: editingItemText.trim(),
+                                          isDone: item.isDone,
+                                          actorUserId: activeUser!.id,
+                                          cardId: card.id,
+                                        });
+                                      }
+                                      setEditingItemId(null);
+                                    } else if (e.key === "Escape") {
+                                      setEditingItemId(null);
+                                    }
+                                  }}
+                                  autoFocus
+                                  className="flex-1 h-6 text-xs py-0"
+                                />
+                              ) : (
+                                <label
+                                  htmlFor={`ci-${item.id}`}
+                                  className={`flex-1 text-xs select-none ${item.isDone ? "line-through text-muted-foreground" : "text-foreground"} ${activeUser ? "cursor-pointer" : ""}`}
+                                  onClick={(e) => {
+                                    if (!activeUser) return;
+                                    e.preventDefault();
+                                    setEditingItemId(itemIdStr);
+                                    setEditingItemText(item.text);
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (!activeUser) return;
+                                    if (e.key === "Enter" || e.key === " ") {
+                                      e.preventDefault();
+                                      setEditingItemId(itemIdStr);
+                                      setEditingItemText(item.text);
+                                    }
+                                  }}
+                                >
+                                  {item.text}
+                                </label>
+                              )}
+                              {activeUser && (
+                                <button
+                                  type="button"
+                                  className="opacity-0 group-hover/ci:opacity-100 transition-opacity h-5 w-5 flex items-center justify-center rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 shrink-0"
+                                  onClick={() =>
+                                    handleDeleteChecklistItem(item.id)
+                                  }
+                                  title="Remove item"
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })
                     )}
 
                     {/* Add checklist item */}
