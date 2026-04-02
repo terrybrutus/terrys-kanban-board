@@ -30,6 +30,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   Calendar,
+  CheckCircle2,
   Database,
   Download,
   Loader2,
@@ -47,6 +48,7 @@ interface SnapshotsPanelProps {
   activeUser: User | null;
   actor: backendInterface | null;
   activeProjectId?: bigint | null;
+  onRestored?: () => void;
 }
 
 function formatSnapshotDate(takenAt: bigint): string {
@@ -74,6 +76,7 @@ export default function SnapshotsPanel({
   activeUser,
   actor,
   activeProjectId,
+  onRestored,
 }: SnapshotsPanelProps) {
   const queryClient = useQueryClient();
   const [showTakeForm, setShowTakeForm] = useState(false);
@@ -90,6 +93,10 @@ export default function SnapshotsPanel({
   const [downloadingId, setDownloadingId] = useState<bigint | null>(null);
   const [isRestoring, setIsRestoring] = useState(false);
   const [restoreProgress, setRestoreProgress] = useState<number | null>(null);
+  const [restoreDone, setRestoreDone] = useState<{
+    columns: number;
+    cards: number;
+  } | null>(null);
 
   const { data: snapshots = [], isLoading: snapshotsLoading } = useSnapshots();
   const { data: users = [] } = useUsers();
@@ -169,49 +176,107 @@ export default function SnapshotsPanel({
       return;
     }
 
+    // Keep dialog open, show progress inside it
+    const capturedLabel = restoreTarget.label;
+    const capturedId = restoreTarget.id;
     setIsRestoring(true);
-    setRestoreProgress(0);
-    setRestoreTarget(null);
+    setRestoreProgress(5);
+    setRestoreDone(null);
 
     try {
-      const json = await actor.getSnapshot(restoreTarget.id);
+      // Step 1: Fetch snapshot JSON
+      const json = await actor.getSnapshot(capturedId);
       if (!json) {
-        toast.error("Snapshot data not found");
+        toast.error("Snapshot data not found on server.");
         return;
       }
 
-      // Use the dedicated snapshot restore function (handles both export and legacy formats)
+      // Step 2: Pre-validate — parse and check column count BEFORE deleting anything
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(json);
+      } catch {
+        toast.error("Snapshot JSON is corrupted — cannot restore.");
+        return;
+      }
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const snapshotProject = (parsed as any)?.project;
+      const snapshotColumns: unknown[] = Array.isArray(snapshotProject?.columns)
+        ? snapshotProject.columns
+        : [];
+
+      if (snapshotColumns.length === 0) {
+        toast.error(
+          "This snapshot contains 0 columns — restore aborted to protect your current board. The snapshot may have been taken while the board was empty.",
+          { duration: 8000 },
+        );
+        return;
+      }
+
+      setRestoreProgress(15);
+
+      // Step 3: Run the restore through the proven import pipeline
       const result = await restoreFromSnapshotJson(
         actor,
         json,
         targetProjectId,
         activeUser.id,
-        (pct) => setRestoreProgress(pct),
+        (pct) => setRestoreProgress(15 + Math.floor(pct * 0.8)), // 15–95%
       );
 
-      // Invalidate all queries so board refreshes immediately
-      await queryClient.invalidateQueries();
+      setRestoreProgress(95);
 
-      if (result.success) {
-        toast.success(
-          `Snapshot "${restoreTarget.label}" restored — ${result.counts.columnsRestored} columns, ${result.counts.cardsRestored} cards.`,
-          { duration: 5000 },
-        );
-      } else if (result.errors.length > 0) {
+      // Step 4: Force-refetch ALL queries (including inactive Board tab queries)
+      await queryClient.refetchQueries({ type: "all" });
+
+      setRestoreProgress(100);
+
+      if (result.errors.length > 0) {
         toast.error(
-          `Restore completed with ${result.errors.length} error(s): ${result.errors[0]}`,
+          `Restore had ${result.errors.length} error(s): ${result.errors[0]}`,
           { duration: 8000 },
         );
-      } else {
+        // Still close dialog and show what was restored
+      }
+
+      // Set restoreDone BEFORE clearing isRestoring so the green state renders first
+      setRestoreDone({
+        columns: result.counts.columnsRestored,
+        cards: result.counts.cardsRestored,
+      });
+      setIsRestoring(false);
+      // Keep restoreProgress at 100 so the bar stays full while green state is shown
+
+      // Auto-navigate to board so user sees the restored data
+      if (result.counts.columnsRestored > 0) {
+        onRestored?.();
         toast.success(
-          `Snapshot "${restoreTarget.label}" restored. Check board for results.`,
+          `"${capturedLabel}" restored — ${result.counts.columnsRestored} columns, ${result.counts.cardsRestored} cards.`,
+          { duration: 6000 },
+        );
+      } else if (result.errors.length === 0) {
+        toast.warning(
+          "Restore completed but 0 columns were imported. The snapshot may have been empty.",
+          { duration: 8000 },
         );
       }
+
+      // Auto-close the dialog after 3s so user can read the green confirmation
+      setTimeout(() => {
+        setRestoreTarget(null);
+        setRestoreDone(null);
+        setRestoreProgress(null);
+      }, 3000);
     } catch (e) {
       toast.error(`Restore failed: ${String(e)}`);
-    } finally {
+      // On error, clean up immediately
       setIsRestoring(false);
       setRestoreProgress(null);
+    } finally {
+      // Note: on success path, setIsRestoring is called above in the try block
+      // so this only affects the error path. restoreProgress is kept visible
+      // until the dialog auto-closes after showing the green confirmation.
     }
   }
 
@@ -330,8 +395,8 @@ export default function SnapshotsPanel({
           </div>
           <p className="text-xs text-muted-foreground">
             A snapshot captures the full state of all projects, columns, cards,
-            users, tags, and swimlanes. Stored on-chain — max 30 snapshots
-            retained (oldest removed automatically).
+            users and tags. Stored on-chain — max 30 snapshots retained (oldest
+            removed automatically).
           </p>
         </div>
       )}
@@ -525,76 +590,124 @@ export default function SnapshotsPanel({
       <Dialog
         open={restoreTarget !== null}
         onOpenChange={(open) => {
-          if (!open && !isRestoring) setRestoreTarget(null);
+          if (!open && !isRestoring) {
+            setRestoreTarget(null);
+            setRestoreDone(null);
+          }
         }}
       >
         <DialogContent className="max-w-md" data-ocid="snapshots.dialog">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-base font-display">
-              <AlertTriangle className="h-4 w-4 text-amber-500" />
-              Restore Snapshot
+              {restoreDone ? (
+                <CheckCircle2 className="h-4 w-4 text-green-500" />
+              ) : (
+                <AlertTriangle className="h-4 w-4 text-amber-500" />
+              )}
+              {restoreDone ? "Restore Complete" : "Restore Snapshot"}
             </DialogTitle>
             <DialogDescription className="text-sm">
-              Restore{" "}
-              <span className="font-semibold text-foreground">
-                "{restoreTarget?.label}"
-              </span>{" "}
-              taken on{" "}
-              <span className="font-semibold text-foreground">
-                {restoreTarget?.date}
-              </span>
-              .
-            </DialogDescription>
-          </DialogHeader>
-          <div className="rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 p-3 text-sm text-amber-800 dark:text-amber-200">
-            <p className="font-medium mb-1 flex items-center gap-1.5">
-              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-              This will replace all current board data
-            </p>
-            <p className="text-xs leading-relaxed">
-              All columns, cards, tags, and comments in the active project will
-              be wiped and replaced with this snapshot's data. This action
-              cannot be undone. Make sure you've taken a snapshot of the current
-              state first if you want to preserve it.
-            </p>
-          </div>
-          {isRestoring && restoreProgress !== null && (
-            <div className="px-1 pb-2 space-y-1">
-              <Progress value={restoreProgress} className="h-2 w-full" />
-              <p className="text-xs text-center text-muted-foreground">
-                {restoreProgress}% complete
-              </p>
-            </div>
-          )}
-          <DialogFooter className="gap-2">
-            <Button
-              variant="ghost"
-              onClick={() => setRestoreTarget(null)}
-              disabled={isRestoring}
-              data-ocid="snapshots.cancel_button"
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleConfirmRestore}
-              disabled={isRestoring}
-              className="gap-1.5"
-              data-ocid="snapshots.confirm_button"
-            >
-              {isRestoring ? (
+              {restoreDone ? (
                 <>
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  {restoreProgress !== null
-                    ? `Restoring… ${restoreProgress}%`
-                    : "Restoring…"}
+                  Restored{" "}
+                  <span className="font-semibold text-foreground">
+                    {restoreDone.columns} columns
+                  </span>{" "}
+                  and{" "}
+                  <span className="font-semibold text-foreground">
+                    {restoreDone.cards} cards
+                  </span>
+                  . Switching to Board tab…
                 </>
               ) : (
                 <>
-                  <RotateCcw className="h-3.5 w-3.5" />
-                  Restore Now
+                  Restore{" "}
+                  <span className="font-semibold text-foreground">
+                    &quot;{restoreTarget?.label}&quot;
+                  </span>{" "}
+                  taken on{" "}
+                  <span className="font-semibold text-foreground">
+                    {restoreTarget?.date}
+                  </span>
+                  .
                 </>
               )}
+            </DialogDescription>
+          </DialogHeader>
+
+          {!restoreDone && (
+            <div className="rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 p-3 text-sm text-amber-800 dark:text-amber-200">
+              <p className="font-medium mb-1 flex items-center gap-1.5">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                This will replace all current board data
+              </p>
+              <p className="text-xs leading-relaxed">
+                All columns, cards, tags, and comments in the active project
+                will be wiped and replaced with this snapshot&apos;s data. Make
+                sure you&apos;ve taken a snapshot of the current state first if
+                you want to preserve it.
+              </p>
+            </div>
+          )}
+
+          {isRestoring && restoreProgress !== null && (
+            <div className="px-1 pb-2 space-y-2">
+              <Progress value={restoreProgress} className="h-2.5 w-full" />
+              <p className="text-xs text-center text-muted-foreground">
+                {restoreProgress < 15
+                  ? "Fetching snapshot data…"
+                  : restoreProgress < 90
+                    ? `Restoring board data… ${restoreProgress}%`
+                    : restoreProgress < 100
+                      ? "Refreshing board…"
+                      : "Done!"}
+              </p>
+            </div>
+          )}
+
+          {restoreDone && (
+            <div className="rounded-lg bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800 p-3">
+              <p className="text-sm text-green-800 dark:text-green-200 flex items-center gap-2">
+                <CheckCircle2 className="h-4 w-4 shrink-0" />
+                Board restored successfully. Navigating to Board tab now.
+              </p>
+            </div>
+          )}
+
+          <DialogFooter className="gap-2">
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setRestoreTarget(null);
+                setRestoreDone(null);
+              }}
+              disabled={isRestoring}
+              data-ocid="snapshots.cancel_button"
+            >
+              {restoreDone ? "Close" : "Cancel"}
             </Button>
+            {!restoreDone && (
+              <Button
+                onClick={handleConfirmRestore}
+                disabled={isRestoring}
+                className="gap-1.5"
+                data-ocid="snapshots.confirm_button"
+              >
+                {isRestoring ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    {restoreProgress !== null
+                      ? `Restoring… ${restoreProgress}%`
+                      : "Restoring…"}
+                  </>
+                ) : (
+                  <>
+                    <RotateCcw className="h-3.5 w-3.5" />
+                    Restore Now
+                  </>
+                )}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -612,7 +725,7 @@ export default function SnapshotsPanel({
               Delete Snapshot?
             </DialogTitle>
             <DialogDescription>
-              Delete "{deleteTarget?.label}"? This cannot be undone.
+              Delete &quot;{deleteTarget?.label}&quot;? This cannot be undone.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2">

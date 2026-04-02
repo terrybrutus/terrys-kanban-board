@@ -22,7 +22,6 @@ export interface SnapshotRestoreResult {
     columnsRestored: number;
     cardsRestored: number;
     tagsRestored: number;
-    swimlanesRestored: number;
   };
 }
 
@@ -30,7 +29,6 @@ export interface SnapshotRestoreResult {
 interface RawSnapshotProject {
   id: string | number;
   name: string;
-  swimlanesEnabled?: boolean;
 }
 
 interface RawSnapshotColumn {
@@ -51,7 +49,6 @@ interface RawSnapshotCard {
   tags?: (string | number)[];
   dueDate?: string | number | null;
   createdAt?: string | number;
-  swimlaneId?: string | number | null;
   isArchived?: boolean;
 }
 
@@ -60,13 +57,6 @@ interface RawSnapshotTag {
   name: string;
   color: string;
   projectId: string | number;
-}
-
-interface RawSnapshotSwimlane {
-  id: string | number;
-  name: string;
-  projectId: string | number;
-  order?: string | number;
 }
 
 interface RawSnapshotUser {
@@ -82,7 +72,6 @@ interface RawSnapshot {
   columns?: RawSnapshotColumn[];
   cards?: RawSnapshotCard[];
   tags?: RawSnapshotTag[];
-  swimlanes?: RawSnapshotSwimlane[];
 }
 
 export async function restoreFromSnapshot(
@@ -99,7 +88,6 @@ export async function restoreFromSnapshot(
       columnsRestored: 0,
       cardsRestored: 0,
       tagsRestored: 0,
-      swimlanesRestored: 0,
     },
   };
 
@@ -156,7 +144,6 @@ export async function restoreFromSnapshot(
 
   // When noProjectFilter is true, snapProjectIdStr is unused (filtering is skipped)
   let snapProjectIdStr = snapProject ? String(snapProject.id) : "";
-  const swimlanesEnabled = snapProject?.swimlanesEnabled ?? false;
 
   // ── PRE-CHECK: Verify snapshot has data BEFORE wiping anything ─────────────
   // If the snapshot has 0 columns, abort immediately to protect existing board.
@@ -191,13 +178,11 @@ export async function restoreFromSnapshot(
 
   try {
     // ── STEP 1: Wipe existing project data ─────────────────────────────────
-    const [existingColumns, existingTags, existingPresets, existingSwimlanes] =
-      await Promise.all([
-        actor.getColumns(targetProjectId).catch(() => []),
-        actor.getProjectTags(targetProjectId).catch(() => []),
-        actor.getFilterPresets(targetProjectId).catch(() => []),
-        actor.getSwimlanes(targetProjectId).catch(() => []),
-      ]);
+    const [existingColumns, existingTags, existingPresets] = await Promise.all([
+      actor.getColumns(targetProjectId).catch(() => []),
+      actor.getProjectTags(targetProjectId).catch(() => []),
+      actor.getFilterPresets(targetProjectId).catch(() => []),
+    ]);
 
     // Delete columns (cascades cards on backend)
     await Promise.all(
@@ -234,17 +219,6 @@ export async function restoreFromSnapshot(
       ),
     );
 
-    // Delete swimlanes
-    await Promise.all(
-      existingSwimlanes.map((sl) =>
-        actor.deleteSwimlane(sl.id, activeUserId).catch((e: unknown) => {
-          result.warnings.push(
-            `Could not delete swimlane "${sl.name}": ${String(e)}`,
-          );
-        }),
-      ),
-    );
-
     // ── STEP 2: Restore tags ────────────────────────────────────────────────
     // Maps old snapshot tag ID → new backend tag ID
     const tagIdMap = new Map<string, bigint>();
@@ -272,39 +246,7 @@ export async function restoreFromSnapshot(
       }
     }
 
-    // ── STEP 3: Restore swimlanes ───────────────────────────────────────────
-    const swimlaneIdMap = new Map<string, bigint>();
-
-    const snapSwimlanes = effectiveNoProjectFilter
-      ? (raw.swimlanes ?? [])
-      : (raw.swimlanes ?? []).filter(
-          (sl) => String(sl.projectId) === snapProjectIdStr,
-        );
-
-    for (const sl of snapSwimlanes) {
-      try {
-        const newSlId = await actor.createSwimlane(
-          targetProjectId,
-          sl.name ?? "Lane",
-          activeUserId,
-        );
-        swimlaneIdMap.set(String(sl.id), newSlId);
-        result.counts.swimlanesRestored++;
-      } catch (e) {
-        result.warnings.push(
-          `Could not restore swimlane "${sl.name}": ${String(e)}`,
-        );
-      }
-    }
-
-    // Restore swimlanes enabled state
-    if (swimlanesEnabled && swimlaneIdMap.size > 0) {
-      await actor
-        .enableSwimlanes(targetProjectId, activeUserId)
-        .catch(() => {});
-    }
-
-    // ── STEP 4: Restore users (ensure they exist; match by name) ───────────
+    // ── STEP 3: Restore users (ensure they exist; match by name) ───────────
     // Build a name → ID map for existing users
     const existingUsers = await actor.getUsers().catch(() => []);
     const userIdMap = new Map<string, bigint>(); // old snap ID → backend ID
@@ -415,16 +357,6 @@ export async function restoreFromSnapshot(
             }
           }
 
-          // Apply swimlane
-          if (card.swimlaneId != null) {
-            const newSlId = swimlaneIdMap.get(String(card.swimlaneId));
-            if (newSlId) {
-              await actor
-                .updateCardSwimlane(newCardId, newSlId, activeUserId)
-                .catch(() => {});
-            }
-          }
-
           // Archive if needed
           if (card.isArchived) {
             await actor.archiveCard(newCardId, activeUserId).catch(() => {});
@@ -516,12 +448,6 @@ export interface ExportedUser {
   isMasterAdmin: boolean;
 }
 
-export interface ExportedSwimlane {
-  id: string;
-  name: string;
-  active: boolean;
-}
-
 export interface ExportedProject {
   id: string;
   name: string;
@@ -529,7 +455,6 @@ export interface ExportedProject {
   tags: ExportedTag[];
   activity: ExportedRevision[];
   filterPresets: ExportedFilterPreset[];
-  swimlanes?: ExportedSwimlane[];
 }
 
 export interface KanbanExport {
@@ -555,7 +480,6 @@ export interface ImportResult {
     tagsImported: number;
     commentsImported: number;
     filterPresetsImported: number;
-    swimlanesImported: number;
   };
 }
 
@@ -567,27 +491,15 @@ export async function exportProjectToString(
   projectName: string,
 ): Promise<string> {
   // Fetch all top-level data in parallel
-  const [
-    columns,
-    cards,
-    users,
-    tags,
-    revisions,
-    filterPresets,
-    swimlanesData,
-    projects,
-  ] = await Promise.all([
-    actor.getColumns(projectId),
-    actor.getCards(projectId),
-    actor.getUsers(),
-    actor.getProjectTags(projectId),
-    actor.getRevisions(projectId),
-    actor.getFilterPresets(projectId),
-    actor.getSwimlanes(projectId),
-    actor.getProjects(),
-  ]);
-
-  const currentProject = projects.find((p) => p.id === projectId);
+  const [columns, cards, users, tags, revisions, filterPresets] =
+    await Promise.all([
+      actor.getColumns(projectId),
+      actor.getCards(projectId),
+      actor.getUsers(),
+      actor.getProjectTags(projectId),
+      actor.getRevisions(projectId),
+      actor.getFilterPresets(projectId),
+    ]);
 
   const userIdToName = new Map(users.map((u) => [u.id.toString(), u.name]));
   const cardMap = new Map(cards.map((c) => [c.id.toString(), c]));
@@ -704,16 +616,6 @@ export async function exportProjectToString(
     dateTo: p.dateTo,
   }));
 
-  // The `active` field is a project-level flag: true means swimlanes are enabled.
-  // All lanes get the same value so that re-importing the exported JSON restores
-  // the enabled/disabled state correctly.
-  const swimlanesAreEnabled = currentProject?.swimlanesEnabled ?? false;
-  const exportedSwimlanes: ExportedSwimlane[] = swimlanesData.map((sl) => ({
-    id: sl.id.toString(),
-    name: sl.name,
-    active: swimlanesAreEnabled,
-  }));
-
   const payload: KanbanExport = {
     _comment: {
       purpose:
@@ -729,8 +631,6 @@ export async function exportProjectToString(
         "Assignee stored by name (not ID) for readability. On import, matched case-insensitively against existing users; unmatched names are auto-created.",
       "project.cards.tags":
         "Array of tag IDs referencing the project.tags array.",
-      "project.swimlanes":
-        "Optional. Array of swimlane names. Set active:true to enable swimlanes on import. Set active:false to import the names without enabling swimlanes.",
       omittingFields:
         "Most fields are optional on import. Missing fields get defaults (empty string, empty list, null, false).",
       unknownFields:
@@ -755,7 +655,6 @@ export async function exportProjectToString(
       tags: exportedTags,
       activity: activityRevisions,
       filterPresets: exportedPresets,
-      swimlanes: exportedSwimlanes,
     },
   };
 
@@ -791,6 +690,7 @@ export async function importProject(
   projectId: bigint,
   activeUserId: bigint,
   importMode: "replace" | "merge",
+  onProgress?: (pct: number) => void,
 ): Promise<ImportResult> {
   const result: ImportResult = {
     success: false,
@@ -805,7 +705,6 @@ export async function importProject(
       tagsImported: 0,
       commentsImported: 0,
       filterPresetsImported: 0,
-      swimlanesImported: 0,
     },
   };
 
@@ -882,6 +781,8 @@ export async function importProject(
       }
     }
 
+    onProgress?.(15);
+
     // ── 3. Import users ────────────────────────────────────────────────────
     const userIdMap = new Map<string, bigint>(); // original id -> new backend id
     const userNameMap = new Map<string, bigint>(); // lowercase name -> backend id
@@ -935,6 +836,8 @@ export async function importProject(
         }
       }
     }
+
+    onProgress?.(25);
 
     // ── 4. Import tags ─────────────────────────────────────────────────────
     const tagIdMap = new Map<string, bigint>(); // original id -> new backend id
@@ -999,69 +902,9 @@ export async function importProject(
       }
     }
 
-    // ── 5. Import swimlanes ────────────────────────────────────────────────
-    const importedSwimlanes: ExportedSwimlane[] = Array.isArray(
-      projectPayload.swimlanes,
-    )
-      ? (projectPayload.swimlanes as ExportedSwimlane[])
-      : [];
+    onProgress?.(35);
 
-    if (importedSwimlanes.length > 0) {
-      try {
-        const currentSwimlanes = await actor
-          .getSwimlanes(projectId)
-          .catch(() => []);
-        let shouldEnableSwimlanes = false;
-
-        for (const sl of importedSwimlanes) {
-          try {
-            const existing = currentSwimlanes.find(
-              (cs) => cs.name.toLowerCase() === (sl.name ?? "").toLowerCase(),
-            );
-            if (existing) {
-              if (importMode === "merge") {
-                result.warnings.push(
-                  `Swimlane "${sl.name}" already exists — skipped.`,
-                );
-              }
-              // Still check if we need to enable
-              if (sl.active) shouldEnableSwimlanes = true;
-            } else {
-              await actor.createSwimlane(
-                projectId,
-                sl.name ?? "Unnamed Swimlane",
-                activeUserId,
-              );
-              result.counts.swimlanesImported++;
-              if (sl.active) shouldEnableSwimlanes = true;
-            }
-          } catch (e) {
-            result.warnings.push(
-              `Could not import swimlane "${sl.name}": ${String(e)}`,
-            );
-          }
-        }
-
-        // Enable swimlanes if any imported lane had active:true
-        if (shouldEnableSwimlanes) {
-          await actor
-            .enableSwimlanes(projectId, activeUserId)
-            .catch((e: unknown) => {
-              result.warnings.push(`Could not enable swimlanes: ${String(e)}`);
-            });
-        }
-
-        if (result.counts.swimlanesImported > 0) {
-          result.warnings.push(
-            `${result.counts.swimlanesImported} swimlane(s) imported.`,
-          );
-        }
-      } catch (e) {
-        result.warnings.push(`Swimlane import failed: ${String(e)}`);
-      }
-    }
-
-    // ── 6. Import columns ──────────────────────────────────────────────────
+    // ── 5. Import columns ──────────────────────────────────────────────────
     const columnIdMap = new Map<string, bigint>(); // original id -> new backend id
 
     const importedColumns: ExportedColumn[] = Array.isArray(
@@ -1092,6 +935,14 @@ export async function importProject(
         );
         columnIdMap.set(String(col.id), newId);
         result.counts.columnsImported++;
+        if (importedColumns.length > 0) {
+          onProgress?.(
+            35 +
+              Math.floor(
+                (result.counts.columnsImported / importedColumns.length) * 25,
+              ),
+          );
+        }
       } catch (e) {
         result.errors.push(
           `Failed to import column "${col.name}": ${String(e)}`,
@@ -1101,6 +952,11 @@ export async function importProject(
 
     // ── 6 & 7. Import cards ────────────────────────────────────────────────
     const cardIdMap = new Map<string, bigint>();
+    const totalCards = importedColumns.reduce(
+      (sum, col) => sum + (col.cards?.length ?? 0),
+      0,
+    );
+    let importedCardCount = 0;
 
     for (const col of importedColumns) {
       const targetColumnId = columnIdMap.get(String(col.id));
@@ -1128,6 +984,12 @@ export async function importProject(
           );
           cardIdMap.set(String(card.id), newCardId);
           result.counts.cardsImported++;
+          importedCardCount++;
+          if (totalCards > 0) {
+            onProgress?.(
+              60 + Math.floor((importedCardCount / totalCards) * 35),
+            );
+          }
 
           // Assign user by name (new format) or legacy assignedUserId fallback
           const assigneeName =
@@ -1310,6 +1172,7 @@ export async function importProject(
     }
 
     result.success = result.errors.length === 0;
+    onProgress?.(100);
   } catch (e) {
     result.errors.push(`Unexpected import error: ${String(e)}`);
     result.success = false;
@@ -1344,268 +1207,40 @@ export async function restoreFromSnapshotJson(
   activeUserId: bigint,
   onProgress?: (pct: number) => void,
 ): Promise<SnapshotRestoreResult> {
-  const result: SnapshotRestoreResult = {
-    success: false,
-    errors: [],
-    warnings: [],
-    counts: {
-      columnsRestored: 0,
-      cardsRestored: 0,
-      tagsRestored: 0,
-      swimlanesRestored: 0,
-    },
-  };
-
   let raw: unknown;
   try {
     raw = JSON.parse(snapshotJson);
   } catch {
-    result.errors.push("Snapshot data is corrupted — could not parse JSON.");
-    return result;
+    return {
+      success: false,
+      errors: ["Snapshot data is corrupted — could not parse JSON."],
+      warnings: [],
+      counts: { columnsRestored: 0, cardsRestored: 0, tagsRestored: 0 },
+    };
   }
 
-  if (
-    raw &&
-    typeof raw === "object" &&
-    "project" in (raw as Record<string, unknown>)
-  ) {
-    // Export format — restore directly
-    const exported = (raw as KanbanExport).project;
-    return performDirectRestore(
-      actor,
-      exported,
-      targetProjectId,
-      activeUserId,
-      result,
-      onProgress,
-    );
-  }
+  onProgress?.(5);
 
-  // Old flat format — fall back to existing handler
-  return restoreFromSnapshot(
+  // Route through the proven importProject pipeline with replace mode.
+  // This is the same path that Import/Export uses and is known to work correctly.
+  const importResult = await importProject(
     actor,
-    snapshotJson,
+    raw,
     targetProjectId,
     activeUserId,
+    "replace",
+    onProgress,
   );
-}
+  // importProject already calls onProgress(100) at the end
 
-async function performDirectRestore(
-  actor: backendInterface,
-  exported: ExportedProject,
-  targetProjectId: bigint,
-  activeUserId: bigint,
-  result: SnapshotRestoreResult,
-  onProgress?: (pct: number) => void,
-): Promise<SnapshotRestoreResult> {
-  const columns = exported.columns ?? [];
-
-  if (columns.length === 0) {
-    result.errors.push(
-      "This snapshot contains 0 columns — restore aborted. Your board data has NOT been changed. The snapshot may have been captured after the board was already empty. Try restoring an earlier snapshot.",
-    );
-    return result;
-  }
-
-  // Wipe existing data
-  const [existingColumns, existingTags, existingPresets, existingSwimlanes] =
-    await Promise.all([
-      actor
-        .getColumns(targetProjectId)
-        .catch(() => [] as Awaited<ReturnType<typeof actor.getColumns>>),
-      actor
-        .getProjectTags(targetProjectId)
-        .catch(() => [] as Awaited<ReturnType<typeof actor.getProjectTags>>),
-      actor
-        .getFilterPresets(targetProjectId)
-        .catch(() => [] as Awaited<ReturnType<typeof actor.getFilterPresets>>),
-      actor
-        .getSwimlanes(targetProjectId)
-        .catch(() => [] as Awaited<ReturnType<typeof actor.getSwimlanes>>),
-    ]);
-
-  await Promise.all(
-    existingColumns.map((col) =>
-      actor.deleteColumn(col.id, activeUserId).catch(() => {}),
-    ),
-  );
-  await Promise.all(
-    existingTags.map((tag) =>
-      actor.deleteTag(tag.id, activeUserId).catch(() => {}),
-    ),
-  );
-  await Promise.all(
-    existingPresets.map((p) =>
-      actor.deleteFilterPreset(p.id, activeUserId).catch(() => {}),
-    ),
-  );
-  await Promise.all(
-    existingSwimlanes.map((sl) =>
-      actor.deleteSwimlane(sl.id, activeUserId).catch(() => {}),
-    ),
-  );
-  onProgress?.(20);
-
-  // Restore tags
-  const tagIdMap = new Map<string, bigint>();
-  for (const tag of exported.tags ?? []) {
-    try {
-      const newId = await actor.createTag(
-        targetProjectId,
-        tag.name,
-        tag.color,
-        activeUserId,
-      );
-      tagIdMap.set(tag.id, newId);
-      result.counts.tagsRestored++;
-    } catch (e) {
-      result.warnings.push(`Could not restore tag "${tag.name}": ${String(e)}`);
-    }
-  }
-  onProgress?.(35);
-
-  // Restore swimlanes
-  const swimlaneIdMap = new Map<string, bigint>();
-  const exportedSwimlanes = exported.swimlanes ?? [];
-  for (const sl of exportedSwimlanes) {
-    try {
-      const newId = await actor.createSwimlane(
-        targetProjectId,
-        sl.name,
-        activeUserId,
-      );
-      swimlaneIdMap.set(sl.id, newId);
-      result.counts.swimlanesRestored++;
-    } catch (e) {
-      result.warnings.push(
-        `Could not restore swimlane "${sl.name}": ${String(e)}`,
-      );
-    }
-  }
-  if (
-    exportedSwimlanes.some((sl) => sl.active !== false) &&
-    swimlaneIdMap.size > 0
-  ) {
-    await actor.enableSwimlanes(targetProjectId, activeUserId).catch(() => {});
-  }
-
-  // Resolve users by name
-  const existingUsers = await actor
-    .getUsers()
-    .catch(() => [] as Awaited<ReturnType<typeof actor.getUsers>>);
-  const userNameToId = new Map(
-    existingUsers.map((u) => [u.name.toLowerCase(), u.id]),
-  );
-
-  // Restore columns and cards
-  for (const col of columns) {
-    try {
-      const newColId = await actor.createColumn(
-        col.name,
-        activeUserId,
-        targetProjectId,
-      );
-      result.counts.columnsRestored++;
-      onProgress?.(50);
-
-      if ((col as ExportedColumn & { isComplete?: boolean }).isComplete) {
-        await actor
-          .setColumnComplete(newColId, true, activeUserId)
-          .catch(() => {});
-      }
-
-      for (const card of col.cards ?? []) {
-        try {
-          const newCardId = await actor.createCard(
-            card.title,
-            card.description ?? null,
-            newColId,
-            activeUserId,
-            targetProjectId,
-          );
-
-          if (card.assigneeName) {
-            const userId = userNameToId.get(card.assigneeName.toLowerCase());
-            if (userId != null) {
-              await actor
-                .assignCard(newCardId, userId, activeUserId)
-                .catch(() => {});
-            }
-          }
-
-          if (card.tags && card.tags.length > 0) {
-            const newTagIds = card.tags
-              .map((tid) => tagIdMap.get(tid))
-              .filter((id): id is bigint => id != null);
-            if (newTagIds.length > 0) {
-              await actor
-                .updateCardTags(newCardId, newTagIds, activeUserId)
-                .catch(() => {});
-            }
-          }
-
-          if (card.dueDate) {
-            try {
-              const ms = new Date(card.dueDate).getTime();
-              if (!Number.isNaN(ms)) {
-                await actor
-                  .updateCardDueDate(
-                    newCardId,
-                    BigInt(ms) * 1_000_000n,
-                    activeUserId,
-                  )
-                  .catch(() => {});
-              }
-            } catch {
-              /* ignore */
-            }
-          }
-
-          // Restore checklists
-          if (Array.isArray(card.checklists) && card.checklists.length > 0) {
-            for (const item of card.checklists as Array<{
-              id: string;
-              text: string;
-              checked: boolean;
-              order: number;
-            }>) {
-              try {
-                const newItemId = await actor.addChecklistItem(
-                  newCardId,
-                  item.text ?? "",
-                  activeUserId,
-                );
-                if (item.checked) {
-                  await actor
-                    .updateChecklistItem(
-                      newItemId,
-                      item.text ?? "",
-                      true,
-                      activeUserId,
-                    )
-                    .catch(() => {});
-                }
-              } catch {
-                /* ignore */
-              }
-            }
-          }
-
-          result.counts.cardsRestored++;
-        } catch (e) {
-          result.warnings.push(
-            `Could not restore card "${card.title}": ${String(e)}`,
-          );
-        }
-      }
-    } catch (e) {
-      result.errors.push(
-        `Could not restore column "${col.name}": ${String(e)}`,
-      );
-    }
-  }
-
-  onProgress?.(100);
-  result.success = result.errors.length === 0;
-  return result;
+  return {
+    success: importResult.success,
+    errors: importResult.errors,
+    warnings: importResult.warnings,
+    counts: {
+      columnsRestored: importResult.counts.columnsImported,
+      cardsRestored: importResult.counts.cardsImported,
+      tagsRestored: importResult.counts.tagsImported,
+    },
+  };
 }

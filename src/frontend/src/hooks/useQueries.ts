@@ -9,7 +9,6 @@ import type {
   ProjectSummary,
   Revision,
   SnapshotMeta,
-  Swimlane,
   Tag,
 } from "../backend.d";
 import { useActor } from "./useActor";
@@ -386,7 +385,6 @@ export function useCreateCard() {
           dueDate: undefined,
           tags: [],
           isArchived: false,
-          swimlaneId: undefined,
           createdAt: BigInt(Date.now()),
           updatedAt: BigInt(Date.now()),
         } as unknown as Card;
@@ -1140,185 +1138,6 @@ export function useMoveCards() {
         queryClient.invalidateQueries({ queryKey: ["cards"] });
         queryClient.invalidateQueries({ queryKey: ["columns"] });
         queryClient.invalidateQueries({ queryKey: ["revisions"] });
-      }
-    },
-  });
-}
-
-// ─── Swimlane hooks ───────────────────────────────────────────────────────────
-
-export function useSwimlanes(projectId: bigint | null) {
-  const { actor, isFetching } = useActor();
-  return useQuery<Swimlane[]>({
-    queryKey: ["swimlanes", projectId?.toString() ?? "none"],
-    queryFn: async () => {
-      if (!actor || projectId === null) return [];
-      return actor.getSwimlanes(projectId);
-    },
-    enabled: !!actor && !isFetching && projectId !== null,
-    staleTime: 30_000,
-  });
-}
-
-export function useCreateSwimlane() {
-  const { actor } = useActor();
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async ({
-      projectId,
-      name,
-      actorUserId,
-    }: {
-      projectId: bigint;
-      name: string;
-      actorUserId: bigint;
-    }): Promise<bigint> => {
-      if (!actor) throw new Error("No actor");
-      return actor.createSwimlane(projectId, name, actorUserId);
-    },
-    onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: ["swimlanes", variables.projectId.toString()],
-      });
-    },
-  });
-}
-
-export function useRenameSwimlane() {
-  const { actor } = useActor();
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async ({
-      swimlaneId,
-      newName,
-      actorUserId,
-      projectId: _projectId,
-    }: {
-      swimlaneId: bigint;
-      newName: string;
-      actorUserId: bigint;
-      projectId: bigint;
-    }): Promise<void> => {
-      if (!actor) throw new Error("No actor");
-      return actor.renameSwimlane(swimlaneId, newName, actorUserId);
-    },
-    onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: ["swimlanes", variables.projectId.toString()],
-      });
-    },
-  });
-}
-
-export function useDeleteSwimlane() {
-  const { actor } = useActor();
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async ({
-      swimlaneId,
-      actorUserId,
-      projectId: _projectId,
-    }: {
-      swimlaneId: bigint;
-      actorUserId: bigint;
-      projectId: bigint;
-    }): Promise<void> => {
-      if (!actor) throw new Error("No actor");
-      return actor.deleteSwimlane(swimlaneId, actorUserId);
-    },
-    onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: ["swimlanes", variables.projectId.toString()],
-      });
-      queryClient.invalidateQueries({ queryKey: ["cards"] });
-    },
-  });
-}
-
-export function useReorderSwimlanes() {
-  const { actor } = useActor();
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async ({
-      newOrder,
-      actorUserId,
-      projectId: _projectId,
-    }: {
-      newOrder: bigint[];
-      actorUserId: bigint;
-      projectId: bigint;
-    }): Promise<void> => {
-      if (!actor) throw new Error("No actor");
-      return actor.reorderSwimlanes(newOrder, actorUserId);
-    },
-    onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: ["swimlanes", variables.projectId.toString()],
-      });
-    },
-  });
-}
-
-export function useEnableSwimlanes() {
-  const { actor } = useActor();
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async ({
-      projectId,
-      actorUserId,
-    }: { projectId: bigint; actorUserId: bigint }): Promise<void> => {
-      if (!actor) throw new Error("No actor");
-      return actor.enableSwimlanes(projectId, actorUserId);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["projects"] });
-      queryClient.invalidateQueries({ queryKey: ["swimlanes"] });
-    },
-  });
-}
-
-export function useDisableSwimlanes() {
-  const { actor } = useActor();
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async ({
-      projectId,
-      actorUserId,
-    }: { projectId: bigint; actorUserId: bigint }): Promise<void> => {
-      if (!actor) throw new Error("No actor");
-      return actor.disableSwimlanes(projectId, actorUserId);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["projects"] });
-    },
-  });
-}
-
-export function useUpdateCardSwimlane() {
-  const { actor } = useActor();
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async ({
-      cardId,
-      swimlaneId,
-      actorUserId,
-      projectId: _projectId,
-    }: {
-      cardId: bigint;
-      swimlaneId: bigint | null;
-      actorUserId: bigint;
-      projectId?: bigint;
-    }): Promise<void> => {
-      if (!actor) throw new Error("No actor");
-      return actor.updateCardSwimlane(cardId, swimlaneId, actorUserId);
-    },
-    onSuccess: (_data, variables) => {
-      if (variables.projectId) {
-        queryClient.invalidateQueries({
-          queryKey: ["cards", variables.projectId.toString()],
-        });
-      } else {
-        queryClient.invalidateQueries({ queryKey: ["cards"] });
       }
     },
   });

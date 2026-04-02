@@ -1,17 +1,9 @@
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Bookmark,
-  BookmarkCheck,
-  ChevronDown,
-  ChevronUp,
-  Filter,
-  Loader2,
-  Search,
-  Trash2,
-  X,
-} from "lucide-react";
-import { useRef, useState } from "react";
-import type { FilterPreset, Tag } from "../backend.d";
+import { ChevronDown, ChevronUp, Filter, Link, Search, X } from "lucide-react";
+import { useState } from "react";
+import { toast } from "sonner";
+import type { Tag } from "../backend.d";
 import type { User } from "../hooks/useQueries";
 
 export interface FilterState {
@@ -41,11 +33,7 @@ interface FilterBarProps {
   onChange: (filters: FilterState) => void;
   users: User[];
   tags: Tag[];
-  presets?: FilterPreset[];
   activeUser?: User | null;
-  onSavePreset?: (name: string) => Promise<void>;
-  onDeletePreset?: (presetId: bigint) => Promise<void>;
-  onApplyPreset?: (preset: FilterPreset) => void;
   /** Number of cards matching the current filters (null when no filter active) */
   filteredCount?: number | null;
   /** Total number of active cards on the board */
@@ -68,29 +56,11 @@ export default function FilterBar({
   onChange,
   users,
   tags,
-  presets,
-  activeUser,
-  onSavePreset,
-  onDeletePreset,
-  onApplyPreset,
   filteredCount,
   totalCount,
 }: FilterBarProps) {
   const [expanded, setExpanded] = useState(false);
-  const [presetsOpen, setPresetsOpen] = useState(false);
-  const [showSaveInput, setShowSaveInput] = useState(false);
-  const [presetName, setPresetName] = useState("");
-  const [isSaving, setIsSaving] = useState(false);
-  const [deletingId, setDeletingId] = useState<bigint | null>(null);
-  const presetsRef = useRef<HTMLDivElement>(null);
-  const saveInputRef = useRef<HTMLInputElement>(null);
-
-  // Close presets dropdown when clicking outside
-  const handlePresetsBlur = (e: React.FocusEvent<HTMLDivElement>) => {
-    if (!presetsRef.current?.contains(e.relatedTarget as Node)) {
-      setPresetsOpen(false);
-    }
-  };
+  const [copyFeedback, setCopyFeedback] = useState(false);
 
   const hasFilters = isFilterActive(filters);
   const chipCount = [
@@ -114,41 +84,18 @@ export default function FilterBar({
     ? users.find((u) => u.id === filters.assigneeId)?.name
     : null;
 
-  async function handleSavePreset() {
-    const trimmed = presetName.trim();
-    if (!trimmed || !onSavePreset) return;
-    setIsSaving(true);
-    try {
-      await onSavePreset(trimmed);
-      setPresetName("");
-      setShowSaveInput(false);
-    } finally {
-      setIsSaving(false);
-    }
+  function handleCopyLink() {
+    navigator.clipboard
+      .writeText(window.location.href)
+      .then(() => {
+        setCopyFeedback(true);
+        toast.success("Filter link copied to clipboard");
+        setTimeout(() => setCopyFeedback(false), 2000);
+      })
+      .catch(() => {
+        toast.error("Failed to copy link");
+      });
   }
-
-  async function handleDeletePreset(presetId: bigint) {
-    if (!onDeletePreset) return;
-    setDeletingId(presetId);
-    try {
-      await onDeletePreset(presetId);
-    } finally {
-      setDeletingId(null);
-    }
-  }
-
-  function canDeletePreset(preset: FilterPreset): boolean {
-    if (!activeUser) return false;
-    return (
-      activeUser.id === preset.createdByUserId ||
-      activeUser.isAdmin ||
-      activeUser.isMasterAdmin
-    );
-  }
-
-  const showPresetsDropdown = presets !== undefined;
-  const showSaveButton =
-    hasFilters && !!activeUser && !!onSavePreset && !showSaveInput;
 
   return (
     <div
@@ -168,6 +115,7 @@ export default function FilterBar({
                 ? "bg-primary/10 text-primary border-primary/25 hover:bg-primary/15"
                 : "text-muted-foreground border-border hover:text-foreground hover:bg-secondary/60"
           }`}
+          data-ocid="filter.toggle"
         >
           <Filter className="h-3.5 w-3.5" />
           Filters
@@ -183,144 +131,28 @@ export default function FilterBar({
           )}
         </button>
 
-        {/* Presets dropdown */}
-        {showPresetsDropdown && (
-          <div
-            ref={presetsRef}
-            className="relative"
-            onBlur={handlePresetsBlur}
-            tabIndex={-1}
-          >
-            <button
-              type="button"
-              onClick={() => setPresetsOpen((v) => !v)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors border ${
-                presetsOpen
-                  ? "bg-secondary text-foreground border-border"
-                  : "text-muted-foreground border-border hover:text-foreground hover:bg-secondary/60"
-              }`}
-            >
-              <Bookmark className="h-3.5 w-3.5" />
-              Presets
-              {presets && presets.length > 0 && (
-                <span className="bg-muted text-muted-foreground rounded-full text-[10px] font-bold w-4 h-4 flex items-center justify-center leading-none">
-                  {presets.length}
-                </span>
-              )}
-              <ChevronDown className="h-3 w-3" />
-            </button>
-
-            {presetsOpen && (
-              <div className="absolute top-full left-0 mt-1 z-50 w-64 rounded-lg border border-border bg-popover shadow-lg overflow-hidden">
-                {!presets || presets.length === 0 ? (
-                  <div className="px-3 py-3 text-xs text-muted-foreground text-center">
-                    No saved presets yet
-                  </div>
-                ) : (
-                  <div className="max-h-56 overflow-y-auto">
-                    {presets.map((preset) => (
-                      <div
-                        key={preset.id.toString()}
-                        className="flex items-center gap-2 px-3 py-2 hover:bg-secondary/60 group transition-colors"
-                      >
-                        <button
-                          type="button"
-                          className="flex-1 text-left text-sm text-foreground truncate"
-                          onClick={() => {
-                            onApplyPreset?.(preset);
-                            setPresetsOpen(false);
-                          }}
-                        >
-                          <span className="flex items-center gap-1.5">
-                            <BookmarkCheck className="h-3 w-3 text-primary shrink-0 opacity-60" />
-                            <span className="truncate">{preset.name}</span>
-                          </span>
-                        </button>
-                        {canDeletePreset(preset) && (
-                          <button
-                            type="button"
-                            disabled={deletingId === preset.id}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDeletePreset(preset.id);
-                            }}
-                            className="shrink-0 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all disabled:opacity-50"
-                            title="Delete preset"
-                          >
-                            {deletingId === preset.id ? (
-                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            ) : (
-                              <Trash2 className="h-3.5 w-3.5" />
-                            )}
-                          </button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Save as preset button / inline input */}
-        {showSaveButton && (
+        {/* Copy link button — only shown when filters are active */}
+        {hasFilters && (
           <button
             type="button"
-            onClick={() => {
-              setShowSaveInput(true);
-              setTimeout(() => saveInputRef.current?.focus(), 50);
-            }}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors border text-muted-foreground border-border hover:text-foreground hover:bg-secondary/60"
+            onClick={handleCopyLink}
+            data-ocid="filter.copy_link_button"
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors border ${
+              copyFeedback
+                ? "bg-primary/10 text-primary border-primary/25"
+                : "text-muted-foreground border-border hover:text-foreground hover:bg-secondary/60"
+            }`}
+            title="Copy shareable link with current filters"
           >
-            <Bookmark className="h-3.5 w-3.5" />
-            Save as preset
+            <Link className="h-3.5 w-3.5" />
+            {copyFeedback ? "Copied!" : "Copy link"}
           </button>
-        )}
-
-        {showSaveInput && (
-          <div className="flex items-center gap-1.5">
-            <Input
-              ref={saveInputRef}
-              value={presetName}
-              onChange={(e) => setPresetName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleSavePreset();
-                if (e.key === "Escape") {
-                  setShowSaveInput(false);
-                  setPresetName("");
-                }
-              }}
-              placeholder="Preset name…"
-              className="h-7 text-xs w-40"
-              disabled={isSaving}
-            />
-            <button
-              type="button"
-              onClick={handleSavePreset}
-              disabled={!presetName.trim() || isSaving}
-              className="flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
-            >
-              {isSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : "Save"}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setShowSaveInput(false);
-                setPresetName("");
-              }}
-              disabled={isSaving}
-              className="text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          </div>
         )}
 
         {/* Active filter chips */}
         {filters.textSearch && (
           <FilterChip
-            label={`"${filters.textSearch.length > 20 ? `${filters.textSearch.slice(0, 20)}…` : filters.textSearch}"`}
+            label={`"${filters.textSearch.length > 20 ? `${filters.textSearch.slice(0, 20)}\u2026` : filters.textSearch}"`}
             onRemove={() => patch({ textSearch: "" })}
             color="blue"
           />
@@ -385,6 +217,7 @@ export default function FilterBar({
             type="button"
             onClick={() => onChange(EMPTY_FILTER)}
             className="text-xs text-muted-foreground hover:text-destructive transition-colors ml-1"
+            data-ocid="filter.clear_button"
           >
             Clear all
           </button>
@@ -403,7 +236,9 @@ export default function FilterBar({
             >
               {filteredCount === 0
                 ? "No matches"
-                : `${filteredCount} match${filteredCount !== 1 ? "es" : ""}${totalCount !== undefined ? ` of ${totalCount}` : ""}`}
+                : `${filteredCount} match${filteredCount !== 1 ? "es" : ""}${
+                    totalCount !== undefined ? ` of ${totalCount}` : ""
+                  }`}
             </span>
           )}
       </div>
@@ -425,8 +260,9 @@ export default function FilterBar({
                 id="filter-search"
                 value={filters.textSearch}
                 onChange={(e) => patch({ textSearch: e.target.value })}
-                placeholder="Title or description…"
+                placeholder="Title or description\u2026"
                 className="pl-8 h-8 text-sm"
+                data-ocid="filter.search_input"
               />
               {filters.textSearch && (
                 <button
@@ -463,6 +299,7 @@ export default function FilterBar({
                     });
                   }
                 }}
+                data-ocid="filter.assignee_select"
               >
                 <option value="">Any assignee</option>
                 {users.map((u) => (
@@ -483,6 +320,7 @@ export default function FilterBar({
                     assigneeId: e.target.checked ? null : filters.assigneeId,
                   })
                 }
+                data-ocid="filter.unassigned_checkbox"
               />
               <span className="text-xs text-muted-foreground">
                 Unassigned only
@@ -494,6 +332,7 @@ export default function FilterBar({
                 className="h-3.5 w-3.5 rounded accent-primary"
                 checked={filters.showArchived}
                 onChange={(e) => patch({ showArchived: e.target.checked })}
+                data-ocid="filter.archived_checkbox"
               />
               <span className="text-xs text-muted-foreground">
                 Show archived
@@ -570,6 +409,7 @@ export default function FilterBar({
                   dateTo: "",
                 });
               }}
+              data-ocid="filter.date_field_select"
             >
               <option value="">No date filter</option>
               <option value="createdAt">Created date</option>
@@ -585,7 +425,7 @@ export default function FilterBar({
                   placeholder="From"
                 />
                 <span className="text-xs text-muted-foreground shrink-0">
-                  –
+                  &ndash;
                 </span>
                 <input
                   type="date"

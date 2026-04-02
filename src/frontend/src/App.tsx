@@ -31,7 +31,6 @@ import {
   arrayMove,
   horizontalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { useQueryClient } from "@tanstack/react-query";
 import {
   ArrowDownAZ,
   ArrowUpAZ,
@@ -43,14 +42,11 @@ import {
   Eye,
   EyeOff,
   Kanban,
-  Layers,
   LayoutDashboard,
   Loader2,
   Plus,
-  Redo2,
   Shield,
   Tag,
-  Undo2,
   Users,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -59,6 +55,7 @@ import type { Card, ColumnView } from "./backend.d";
 import AccessKeyGate from "./components/AccessKeyGate";
 import ActivityTab from "./components/ActivityTab";
 import BulkCardImport from "./components/BulkCardImport";
+import { CardDetailModal } from "./components/CardDetailModal";
 import DashboardTab from "./components/DashboardTab";
 import FilterBar, {
   EMPTY_FILTER,
@@ -70,7 +67,6 @@ import KanbanColumn from "./components/KanbanColumn";
 import ProjectExportImport from "./components/ProjectExportImport";
 import ProjectSwitcher from "./components/ProjectSwitcher";
 import SnapshotsPanel from "./components/SnapshotsPanel";
-import SwimlanesModal from "./components/SwimlanesModal";
 import TagsModal from "./components/TagsModal";
 import TutorialApp from "./components/TutorialApp";
 import { hashPin } from "./components/UsersTab";
@@ -87,10 +83,6 @@ import {
   useCreateColumn,
   useDeleteCard,
   useDeleteColumn,
-  useDeleteFilterPreset,
-  useDisableSwimlanes,
-  useEnableSwimlanes,
-  useFilterPresets,
   useInitDefaultProject,
   useIsAdminSetup,
   useMoveCard,
@@ -100,18 +92,14 @@ import {
   useRenameUser,
   useReorderColumns,
   useRestoreCard,
-  useSaveFilterPreset,
   useSetColumnComplete,
-  useSwimlanes,
   useUpdateCard,
   useUpdateCardDueDate,
-  useUpdateCardSwimlane,
   useUpdateCardTags,
   useUsers,
   useVerifyPin,
 } from "./hooks/useQueries";
 import type { User } from "./hooks/useQueries";
-import { useUndoRedo } from "./hooks/useUndoRedo";
 
 type TabId = "board" | "users" | "activity" | "dashboard" | "snapshots";
 
@@ -131,7 +119,6 @@ export default function App() {
 
 function AppInner() {
   const { actor, isFetching: actorFetching } = useActor();
-  const queryClient = useQueryClient();
   // ── Access key gate ─────────────────────────────────────────────────────────
   const [gateUnlocked, setGateUnlocked] = useState(false);
 
@@ -154,11 +141,6 @@ function AppInner() {
     useCards(activeProjectId);
   const { data: users = [] } = useUsers();
   const { data: projectTags = [] } = useProjectTags(activeProjectId);
-  const { data: filterPresets = [] } = useFilterPresets(activeProjectId);
-  const { mutateAsync: saveFilterPreset } = useSaveFilterPreset();
-  const { mutateAsync: deleteFilterPreset } = useDeleteFilterPreset();
-  const { data: swimlanes = [] } = useSwimlanes(activeProjectId);
-
   // ── Init default project on first actor availability ────────────────────────
   const { mutateAsync: initDefaultProject } = useInitDefaultProject();
   const [projectInitialized, setProjectInitialized] = useState(false);
@@ -196,10 +178,6 @@ function AppInner() {
     }
   }, [users, activeUser]);
 
-  // ── Undo / Redo ─────────────────────────────────────────────────────────────
-  const { pushSnapshot, undo, redo, clearAll, canUndo, canRedo } =
-    useUndoRedo();
-
   // ── Auto-snapshot helper ─────────────────────────────────────────────────────
   // Awaits the backend snapshot before allowing the destructive action to proceed.
   // This ensures the snapshot captures state BEFORE the destruction, not after.
@@ -226,75 +204,8 @@ function AppInner() {
     [actor, activeUser, activeProjectId, projects],
   );
 
-  // ── Undo/Redo keyboard shortcuts ────────────────────────────────────────────
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if (activeTab !== "board") return;
-      // Don't fire when user is typing in an input/textarea
-      const target = e.target as HTMLElement;
-      if (
-        target.tagName === "INPUT" ||
-        target.tagName === "TEXTAREA" ||
-        target.isContentEditable
-      )
-        return;
-      const isMac = navigator.platform.toUpperCase().includes("MAC");
-      const ctrlOrCmd = isMac ? e.metaKey : e.ctrlKey;
-      if (ctrlOrCmd && e.key === "z" && !e.shiftKey) {
-        e.preventDefault();
-        const snap = undo();
-        if (snap) {
-          queryClient.setQueryData(
-            ["cards", activeProjectId?.toString() ?? "none"],
-            snap.cards,
-          );
-          queryClient.setQueryData(
-            ["columns", activeProjectId?.toString() ?? "none"],
-            snap.columns,
-          );
-          toast.success(
-            "Undone (session only — do not refresh or the undo will be lost)",
-          );
-        }
-      }
-      if (ctrlOrCmd && (e.key === "Z" || (e.key === "z" && e.shiftKey))) {
-        e.preventDefault();
-        const snap = redo();
-        if (snap) {
-          queryClient.setQueryData(
-            ["cards", activeProjectId?.toString() ?? "none"],
-            snap.cards,
-          );
-          queryClient.setQueryData(
-            ["columns", activeProjectId?.toString() ?? "none"],
-            snap.columns,
-          );
-          toast.success(
-            "Redone (session only — do not refresh or the redo will be lost)",
-          );
-        }
-      }
-      if (ctrlOrCmd && e.key === "y") {
-        e.preventDefault();
-        const snap = redo();
-        if (snap) {
-          queryClient.setQueryData(
-            ["cards", activeProjectId?.toString() ?? "none"],
-            snap.cards,
-          );
-          queryClient.setQueryData(
-            ["columns", activeProjectId?.toString() ?? "none"],
-            snap.columns,
-          );
-          toast.success(
-            "Redone (session only — do not refresh or the redo will be lost)",
-          );
-        }
-      }
-    }
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [activeTab, undo, redo, queryClient, activeProjectId]);
+  // ── Selected card (for lifted modal) ────────────────────────────────────────
+  const [selectedCardId, setSelectedCardId] = useState<bigint | null>(null);
 
   // ── Tags modal ──────────────────────────────────────────────────────────────
   const [showTagsModal, setShowTagsModal] = useState(false);
@@ -333,17 +244,7 @@ function AppInner() {
   const { mutateAsync: updateCardDueDate } = useUpdateCardDueDate();
   const { mutateAsync: archiveCard } = useArchiveCard();
   const { mutateAsync: restoreCard } = useRestoreCard();
-  const { mutateAsync: updateCardSwimlane } = useUpdateCardSwimlane();
   const { mutateAsync: renameUser } = useRenameUser();
-  const { mutateAsync: enableSwimlanes } = useEnableSwimlanes();
-  const { mutateAsync: disableSwimlanes } = useDisableSwimlanes();
-
-  // ── Swimlanes modal ─────────────────────────────────────────────────────────
-  const [showSwimlanesModal, setShowSwimlanesModal] = useState(false);
-
-  // Derive swimlanesEnabled from current project
-  const swimlanesEnabled =
-    projects.find((p) => p.id === activeProjectId)?.swimlanesEnabled ?? false;
 
   // ── Column sort (visual-only, per project, localStorage) ────────────────────
   type ColumnSortDir = "asc" | "desc" | null;
@@ -443,8 +344,43 @@ function AppInner() {
 
   const [showHiddenColsPopover, setShowHiddenColsPopover] = useState(false);
 
-  // ── Filter state ────────────────────────────────────────────────────────────
-  const [filters, setFilters] = useState<FilterState>(EMPTY_FILTER);
+  // ── Filter state (URL-encoded) ──────────────────────────────────────────────
+  const [filters, setFilters] = useState<FilterState>(() => {
+    const params = new URLSearchParams(window.location.search);
+    return {
+      assigneeId: params.get("assignee")
+        ? BigInt(params.get("assignee")!)
+        : null,
+      tagIds: params.get("tags") ? params.get("tags")!.split(",") : [],
+      unassignedOnly: params.get("unassigned") === "1",
+      textSearch: params.get("q") ?? "",
+      dateField:
+        (params.get("dateField") as "createdAt" | "dueDate" | null) ?? null,
+      dateFrom: params.get("from") ?? "",
+      dateTo: params.get("to") ?? "",
+      showArchived: params.get("archived") === "1",
+    };
+  });
+
+  // Sync filter state to URL for shareability/bookmarking
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (filters.assigneeId != null)
+      params.set("assignee", filters.assigneeId.toString());
+    if (filters.tagIds.length > 0) params.set("tags", filters.tagIds.join(","));
+    if (filters.unassignedOnly) params.set("unassigned", "1");
+    if (filters.textSearch) params.set("q", filters.textSearch);
+    if (filters.dateField) params.set("dateField", filters.dateField);
+    if (filters.dateFrom) params.set("from", filters.dateFrom);
+    if (filters.dateTo) params.set("to", filters.dateTo);
+    if (filters.showArchived) params.set("archived", "1");
+    const search = params.toString();
+    window.history.replaceState(
+      null,
+      "",
+      search ? `?${search}` : window.location.pathname,
+    );
+  }, [filters]);
 
   // Only fetch archived cards when the user has explicitly toggled "show archived".
   // Fetching them on every project load wastes a canister call on initial board render.
@@ -564,9 +500,6 @@ function AppInner() {
         throw new Error("No active user");
       }
 
-      // Capture state before the action for undo
-      pushSnapshot({ cards, columns, swimlanes });
-
       try {
         await updateCard({
           cardId,
@@ -581,15 +514,7 @@ function AppInner() {
         throw new Error("Failed to update card");
       }
     },
-    [
-      updateCard,
-      activeUser,
-      activeProjectId,
-      cards,
-      columns,
-      swimlanes,
-      pushSnapshot,
-    ],
+    [updateCard, activeUser, activeProjectId],
   );
 
   const handleDeleteCard = useCallback(
@@ -598,8 +523,6 @@ function AppInner() {
         toast.error("Please set yourself as active in the Users tab first");
         throw new Error("No active user");
       }
-      // In-memory snapshot for session undo + backend auto-snapshot for failsafe
-      pushSnapshot({ cards, columns, swimlanes });
       const deletedCard = cards.find((c) => c.id === cardId);
       await autoSnapshot(
         `Before deleting card '${deletedCard?.title ?? String(cardId)}'`,
@@ -616,16 +539,7 @@ function AppInner() {
         throw new Error("Failed to delete card");
       }
     },
-    [
-      deleteCard,
-      activeUser,
-      activeProjectId,
-      cards,
-      columns,
-      swimlanes,
-      pushSnapshot,
-      autoSnapshot,
-    ],
+    [deleteCard, activeUser, activeProjectId, cards, autoSnapshot],
   );
 
   const handleMoveCard = useCallback(
@@ -634,9 +548,6 @@ function AppInner() {
         toast.error("Please set yourself as active in the Users tab first");
         throw new Error("No active user");
       }
-
-      // Snapshot before the move
-      pushSnapshot({ cards, columns, swimlanes });
 
       try {
         await moveCard({
@@ -652,15 +563,14 @@ function AppInner() {
         throw new Error("Failed to move card");
       }
     },
-    [
-      moveCard,
-      activeUser,
-      activeProjectId,
-      cards,
-      columns,
-      swimlanes,
-      pushSnapshot,
-    ],
+    [moveCard, activeUser, activeProjectId],
+  );
+
+  const handleMoveToColumn = useCallback(
+    async (cardId: bigint, targetColumnId: bigint) => {
+      await handleMoveCard(cardId, targetColumnId, BigInt(9999));
+    },
+    [handleMoveCard],
   );
 
   const handleRenameColumn = useCallback(
@@ -720,8 +630,6 @@ function AppInner() {
       const capturedUserId = activeUser.id;
       const capturedProjectId = activeProjectId;
 
-      // In-memory snapshot for session undo + backend auto-snapshot for failsafe
-      pushSnapshot({ cards, columns, swimlanes });
       const deletedColName =
         columns.find((c) => c.id === columnId)?.name ?? String(columnId);
       const deletedColCardCount =
@@ -767,10 +675,7 @@ function AppInner() {
       moveCard,
       activeUser,
       activeProjectId,
-      cards,
       columns,
-      swimlanes,
-      pushSnapshot,
       autoSnapshot,
     ],
   );
@@ -781,8 +686,6 @@ function AppInner() {
         toast.error("Please set yourself as active in the Users tab first");
         throw new Error("No active user");
       }
-
-      pushSnapshot({ cards, columns, swimlanes });
 
       try {
         await assignCard({
@@ -797,15 +700,7 @@ function AppInner() {
         throw new Error("Failed to assign card");
       }
     },
-    [
-      assignCard,
-      activeUser,
-      activeProjectId,
-      cards,
-      columns,
-      swimlanes,
-      pushSnapshot,
-    ],
+    [assignCard, activeUser, activeProjectId],
   );
 
   const handleUpdateCardTags = useCallback(
@@ -815,8 +710,6 @@ function AppInner() {
         throw new Error("No active user");
       }
       if (!activeProjectId) throw new Error("No active project");
-
-      pushSnapshot({ cards, columns, swimlanes });
 
       try {
         await updateCardTags({
@@ -831,15 +724,7 @@ function AppInner() {
         throw new Error("Failed to update tags");
       }
     },
-    [
-      updateCardTags,
-      activeUser,
-      activeProjectId,
-      cards,
-      columns,
-      swimlanes,
-      pushSnapshot,
-    ],
+    [updateCardTags, activeUser, activeProjectId],
   );
 
   const handleUpdateCardDueDate = useCallback(
@@ -849,8 +734,6 @@ function AppInner() {
         throw new Error("No active user");
       }
       if (!activeProjectId) throw new Error("No active project");
-
-      pushSnapshot({ cards, columns, swimlanes });
 
       try {
         await updateCardDueDate({
@@ -865,15 +748,7 @@ function AppInner() {
         throw new Error("Failed to update due date");
       }
     },
-    [
-      updateCardDueDate,
-      activeUser,
-      activeProjectId,
-      cards,
-      columns,
-      swimlanes,
-      pushSnapshot,
-    ],
+    [updateCardDueDate, activeUser, activeProjectId],
   );
 
   // ── Archive / Restore handlers ──────────────────────────────────────────────
@@ -883,7 +758,6 @@ function AppInner() {
         toast.error("Please set yourself as active in the Users tab first");
         throw new Error("No active user");
       }
-      pushSnapshot({ cards, columns, swimlanes });
       const archivedCardTitle =
         cards.find((c) => c.id === cardId)?.title ?? String(cardId);
       await autoSnapshot(`Before archiving card '${archivedCardTitle}'`);
@@ -899,16 +773,7 @@ function AppInner() {
         throw new Error("Failed to archive card");
       }
     },
-    [
-      archiveCard,
-      activeUser,
-      activeProjectId,
-      cards,
-      columns,
-      swimlanes,
-      pushSnapshot,
-      autoSnapshot,
-    ],
+    [archiveCard, activeUser, activeProjectId, cards, autoSnapshot],
   );
 
   const handleRestoreCard = useCallback(
@@ -917,7 +782,6 @@ function AppInner() {
         toast.error("Please set yourself as active in the Users tab first");
         throw new Error("No active user");
       }
-      pushSnapshot({ cards, columns, swimlanes });
       try {
         await restoreCard({
           cardId,
@@ -930,102 +794,7 @@ function AppInner() {
         throw new Error("Failed to restore card");
       }
     },
-    [
-      restoreCard,
-      activeUser,
-      activeProjectId,
-      cards,
-      columns,
-      swimlanes,
-      pushSnapshot,
-    ],
-  );
-
-  const handleUpdateCardSwimlane = useCallback(
-    async (cardId: bigint, swimlaneId: bigint | null) => {
-      if (!activeUser) {
-        toast.error("Please set yourself as active in the Users tab first");
-        throw new Error("No active user");
-      }
-      try {
-        await updateCardSwimlane({
-          cardId,
-          swimlaneId,
-          actorUserId: activeUser.id,
-          projectId: activeProjectId ?? undefined,
-        });
-      } catch (err) {
-        if (err instanceof Error && err.message === "No active user") throw err;
-        toast.error("Failed to update swimlane");
-        throw new Error("Failed to update swimlane");
-      }
-    },
-    [updateCardSwimlane, activeUser, activeProjectId],
-  );
-
-  const handleQuickAdd = useCallback(
-    async (
-      columnId: bigint,
-      title: string,
-      tagIds: bigint[],
-      assigneeId: bigint | null,
-      dueDate: bigint | null,
-      swimlaneId: bigint | null,
-    ) => {
-      if (!activeUser) {
-        toast.error("Please set yourself as active first");
-        throw new Error("No active user");
-      }
-      if (!activeProjectId) throw new Error("No active project");
-      const cardId = await createCard({
-        title,
-        description: null,
-        columnId,
-        actorUserId: activeUser.id,
-        projectId: activeProjectId,
-      });
-      if (tagIds.length > 0) {
-        await updateCardTags({
-          cardId,
-          tagIds,
-          actorUserId: activeUser.id,
-          projectId: activeProjectId,
-        });
-      }
-      if (assigneeId !== null) {
-        await assignCard({
-          cardId,
-          userId: assigneeId,
-          actorUserId: activeUser.id,
-          projectId: activeProjectId,
-        });
-      }
-      if (dueDate !== null) {
-        await updateCardDueDate({
-          cardId,
-          dueDate,
-          actorUserId: activeUser.id,
-          projectId: activeProjectId,
-        });
-      }
-      if (swimlaneId !== null) {
-        await updateCardSwimlane({
-          cardId,
-          swimlaneId,
-          actorUserId: activeUser.id,
-          projectId: activeProjectId ?? undefined,
-        });
-      }
-    },
-    [
-      createCard,
-      updateCardTags,
-      assignCard,
-      updateCardDueDate,
-      updateCardSwimlane,
-      activeUser,
-      activeProjectId,
-    ],
+    [restoreCard, activeUser, activeProjectId],
   );
 
   const handleRenameUser = useCallback(
@@ -1044,75 +813,6 @@ function AppInner() {
     [renameUser, activeUser],
   );
 
-  // enableSwimlanes and disableSwimlanes are used by SwimlanesModal internally via hooks
-  // but we keep them here in case they're needed for future direct calls
-  void enableSwimlanes;
-  void disableSwimlanes;
-
-  // ── Filter preset handlers ──────────────────────────────────────────────────
-  const handleSavePreset = useCallback(
-    async (name: string) => {
-      if (!activeUser || !activeProjectId) {
-        toast.error("Please set yourself as active first");
-        throw new Error("No active user or project");
-      }
-      try {
-        await saveFilterPreset({
-          projectId: activeProjectId,
-          createdByUserId: activeUser.id,
-          name,
-          assigneeId: filters.assigneeId,
-          tagIds: filters.tagIds.map((id) => BigInt(id)),
-          unassignedOnly: filters.unassignedOnly,
-          textSearch: filters.textSearch,
-          dateField: filters.dateField,
-          dateFrom: filters.dateFrom,
-          dateTo: filters.dateTo,
-        });
-        toast.success(`Preset "${name}" saved`);
-      } catch {
-        toast.error("Failed to save preset");
-        throw new Error("Failed to save preset");
-      }
-    },
-    [saveFilterPreset, activeUser, activeProjectId, filters],
-  );
-
-  const handleDeletePreset = useCallback(
-    async (presetId: bigint) => {
-      if (!activeUser) {
-        toast.error("Please set yourself as active first");
-        throw new Error("No active user");
-      }
-      try {
-        await deleteFilterPreset({ presetId, actorUserId: activeUser.id });
-        toast.success("Preset deleted");
-      } catch {
-        toast.error("Failed to delete preset");
-        throw new Error("Failed to delete preset");
-      }
-    },
-    [deleteFilterPreset, activeUser],
-  );
-
-  const handleApplyPreset = useCallback(
-    (preset: import("./backend.d").FilterPreset) => {
-      setFilters({
-        assigneeId: preset.assigneeId ?? null,
-        tagIds: preset.tagIds.map((id) => id.toString()),
-        unassignedOnly: preset.unassignedOnly,
-        textSearch: preset.textSearch,
-        dateField:
-          (preset.dateField as "createdAt" | "dueDate" | undefined) ?? null,
-        dateFrom: preset.dateFrom,
-        dateTo: preset.dateTo,
-        showArchived: false,
-      });
-      toast.success(`Applied preset "${preset.name}"`);
-    },
-    [],
-  );
-
   // ── Multi-move handler ──────────────────────────────────────────────────────
   const handleMoveCards = useCallback(
     async (cardIds: bigint[], targetColumnId: bigint) => {
@@ -1121,8 +821,6 @@ function AppInner() {
         throw new Error("No active user");
       }
 
-      // In-memory snapshot for session undo + backend auto-snapshot for failsafe
-      pushSnapshot({ cards, columns, swimlanes });
       const targetColName =
         columns.find((c) => c.id === targetColumnId)?.name ??
         String(targetColumnId);
@@ -1150,16 +848,7 @@ function AppInner() {
         throw new Error("Failed to move cards");
       }
     },
-    [
-      moveCard,
-      activeUser,
-      activeProjectId,
-      cards,
-      columns,
-      swimlanes,
-      pushSnapshot,
-      autoSnapshot,
-    ],
+    [moveCard, activeUser, activeProjectId, columns, autoSnapshot],
   );
 
   // ── Quick switcher: confirm PIN ─────────────────────────────────────────────
@@ -1343,20 +1032,6 @@ function AppInner() {
     }
   }
 
-  /** Parse a swimlane droppable id like "swimlane-123-col-456" → { swimlaneId: "123", colId: "456" }
-   *  or "swimlane-default-col-456" → { swimlaneId: null, colId: "456" }
-   */
-  function parseSwimlaneDropId(
-    id: string,
-  ): { swimlaneId: string | null; colId: string } | null {
-    const m = id.match(/^swimlane-(.+)-col-(\d+)$/);
-    if (!m) return null;
-    return {
-      swimlaneId: m[1] === "default" ? null : m[1],
-      colId: m[2],
-    };
-  }
-
   function handleDragOver({ active, over }: DragOverEvent) {
     const activeId = active.id as string;
 
@@ -1388,10 +1063,7 @@ function AppInner() {
 
     // Determine the target column
     let targetColId: string | null = null;
-    if (overId.startsWith("swimlane-")) {
-      const parsed = parseSwimlaneDropId(overId);
-      if (parsed) targetColId = parsed.colId;
-    } else if (overId.startsWith("col-")) {
+    if (overId.startsWith("col-")) {
       targetColId = overId.replace("col-", "");
     } else if (!overId.startsWith("col-header-")) {
       targetColId = findColumnForCard(overId, localColumnsOverride);
@@ -1484,18 +1156,11 @@ function AppInner() {
       return;
     }
 
-    // Determine target column + position + swimlane (if applicable)
+    // Determine target column + position
     let targetColId: string | null = null;
     let targetCardId: string | null = null;
-    let targetSwimlaneId: string | null | undefined = undefined; // undefined = no change
 
-    if (overId.startsWith("swimlane-")) {
-      const parsed = parseSwimlaneDropId(overId);
-      if (parsed) {
-        targetColId = parsed.colId;
-        targetSwimlaneId = parsed.swimlaneId; // null = default lane, string = specific lane
-      }
-    } else if (overId.startsWith("col-")) {
+    if (overId.startsWith("col-")) {
       targetColId = overId.replace("col-", "");
     } else if (!overId.startsWith("col-header-")) {
       targetColId = findColumnForCard(overId, localColumnsOverride);
@@ -1523,18 +1188,6 @@ function AppInner() {
       } else {
         newPosition = overIndex >= 0 ? overIndex : withoutActive.length;
       }
-    } else if (targetSwimlaneId !== undefined) {
-      // Dropping onto a swimlane zone — scope position to cards in that swimlane only
-      const targetSwimlaneIdBigInt =
-        targetSwimlaneId !== null ? targetSwimlaneId : null;
-      const swimlaneScopedCards = targetCards.filter((cardIdStr) => {
-        if (cardIdStr === activeId) return false;
-        const c = cards.find((card) => card.id.toString() === cardIdStr);
-        if (!c) return false;
-        const cardSwimlaneStr = c.swimlaneId?.toString() ?? null;
-        return cardSwimlaneStr === targetSwimlaneIdBigInt;
-      });
-      newPosition = swimlaneScopedCards.length;
     } else {
       const withoutActive = targetCards.filter((id) => id !== activeId);
       newPosition = withoutActive.length;
@@ -1548,21 +1201,11 @@ function AppInner() {
         ?.cardIds.map((id) => id.toString()) ?? [];
     const originalPosition = originalCards.indexOf(activeId);
 
-    // Find the card to determine current swimlane
+    // Find card id
     const cardBigInt = cards.find((c) => c.id.toString() === activeId)?.id;
-    const cardObj = cards.find((c) => c.id.toString() === activeId);
 
-    // Check if swimlane changed
-    const currentSwimlaneId = cardObj?.swimlaneId?.toString() ?? null;
-    const swimlaneChanged =
-      targetSwimlaneId !== undefined && targetSwimlaneId !== currentSwimlaneId;
-
-    // Skip if nothing changed (column, position, AND swimlane are all same)
-    if (
-      targetColId === originalColId &&
-      newPosition === originalPosition &&
-      !swimlaneChanged
-    ) {
+    // Skip if nothing changed
+    if (targetColId === originalColId && newPosition === originalPosition) {
       setLocalColumnsOverride(null);
       return;
     }
@@ -1589,20 +1232,6 @@ function AppInner() {
           cardId: cardBigInt,
           targetColumnId: targetColBigInt,
           newPosition: BigInt(newPosition),
-          actorUserId: activeUser.id,
-          projectId: activeProjectId ?? undefined,
-        }),
-      );
-    }
-
-    // Swimlane move (if swimlane changed)
-    if (swimlaneChanged && targetSwimlaneId !== undefined) {
-      const newSwimlaneIdBigInt =
-        targetSwimlaneId !== null ? BigInt(targetSwimlaneId) : null;
-      ops.push(
-        updateCardSwimlane({
-          cardId: cardBigInt,
-          swimlaneId: newSwimlaneIdBigInt,
           actorUserId: activeUser.id,
           projectId: activeProjectId ?? undefined,
         }),
@@ -1719,18 +1348,6 @@ function AppInner() {
           onOpenChange={setShowTagsModal}
           projectId={activeProjectId}
           activeUser={activeUser}
-        />
-      )}
-
-      {/* Swimlanes modal */}
-      {activeProjectId && (
-        <SwimlanesModal
-          open={showSwimlanesModal}
-          onOpenChange={setShowSwimlanesModal}
-          projectId={activeProjectId}
-          activeUser={activeUser}
-          swimlanesEnabled={swimlanesEnabled}
-          swimlanes={swimlanes}
         />
       )}
 
@@ -1879,7 +1496,6 @@ function AppInner() {
               setLocalColumnsOverride(null);
               setLocalColumnOrder(null);
               setAddingColumn(false);
-              clearAll();
             }}
             activeUser={activeUser}
           />
@@ -1957,64 +1573,6 @@ function AppInner() {
         </nav>
 
         <div className="ml-auto flex items-center gap-2">
-          {/* Undo/Redo buttons — shown on board tab */}
-          {activeTab === "board" && (
-            <>
-              <button
-                type="button"
-                onClick={() => {
-                  const snap = undo();
-                  if (snap) {
-                    queryClient.setQueryData(
-                      ["cards", activeProjectId?.toString() ?? "none"],
-                      snap.cards,
-                    );
-                    queryClient.setQueryData(
-                      ["columns", activeProjectId?.toString() ?? "none"],
-                      snap.columns,
-                    );
-                    toast.success(
-                      "Undone (session only — do not refresh or the undo will be lost)",
-                    );
-                  }
-                }}
-                disabled={!canUndo}
-                className="flex items-center gap-1 px-2.5 py-1.5 rounded-md text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors disabled:opacity-30 disabled:pointer-events-none"
-                title={canUndo ? "Undo last action" : "Nothing to undo"}
-                data-ocid="board.undo_button"
-              >
-                <Undo2 className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">Undo</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  const snap = redo();
-                  if (snap) {
-                    queryClient.setQueryData(
-                      ["cards", activeProjectId?.toString() ?? "none"],
-                      snap.cards,
-                    );
-                    queryClient.setQueryData(
-                      ["columns", activeProjectId?.toString() ?? "none"],
-                      snap.columns,
-                    );
-                    toast.success(
-                      "Redone (session only — do not refresh or the redo will be lost)",
-                    );
-                  }
-                }}
-                disabled={!canRedo}
-                className="flex items-center gap-1 px-2.5 py-1.5 rounded-md text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors disabled:opacity-30 disabled:pointer-events-none"
-                title={canRedo ? "Redo last undone action" : "Nothing to redo"}
-                data-ocid="board.redo_button"
-              >
-                <Redo2 className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">Redo</span>
-              </button>
-            </>
-          )}
-
           {/* Tags button — admin only, shown on board tab */}
           {isAdminUser && activeTab === "board" && activeProjectId && (
             <button
@@ -2025,27 +1583,6 @@ function AppInner() {
             >
               <Tag className="h-3.5 w-3.5" />
               Tags
-            </button>
-          )}
-
-          {/* Swimlanes button — admin only */}
-          {isAdminUser && activeTab === "board" && activeProjectId && (
-            <button
-              type="button"
-              onClick={() => setShowSwimlanesModal(true)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                swimlanesEnabled
-                  ? "text-primary bg-primary/10 hover:bg-primary/15"
-                  : "text-muted-foreground hover:text-foreground hover:bg-secondary/60"
-              }`}
-              title={
-                swimlanesEnabled
-                  ? "Swimlanes enabled — click to manage"
-                  : "Manage swimlanes"
-              }
-            >
-              <Layers className="h-3.5 w-3.5" />
-              Swimlanes
             </button>
           )}
 
@@ -2259,11 +1796,7 @@ function AppInner() {
                 onChange={setFilters}
                 users={users}
                 tags={projectTags}
-                presets={filterPresets}
                 activeUser={activeUser}
-                onSavePreset={handleSavePreset}
-                onDeletePreset={handleDeletePreset}
-                onApplyPreset={handleApplyPreset}
                 filteredCount={filterResultCount}
                 totalCount={totalCardCount}
               />
@@ -2319,7 +1852,6 @@ function AppInner() {
                         isFirst={idx === 0}
                         isLast={idx === effectiveColumns.length - 1}
                         onAddCard={handleAddCard}
-                        onUpdateCard={handleUpdateCard}
                         onDeleteCard={handleDeleteCard}
                         onMoveCard={handleMoveCard}
                         onRenameColumn={handleRenameColumn}
@@ -2329,21 +1861,17 @@ function AppInner() {
                         onUpdateCardTags={handleUpdateCardTags}
                         onUpdateCardDueDate={handleUpdateCardDueDate}
                         onArchiveCard={handleArchiveCard}
-                        onRestoreCard={handleRestoreCard}
-                        onUpdateCardSwimlane={handleUpdateCardSwimlane}
-                        onQuickAdd={handleQuickAdd}
                         onMoveCards={handleMoveCards}
                         onBulkImport={() => {
                           if (!requireActiveUser()) return;
                           setBulkImportColumn(column);
                         }}
                         onHideColumn={hideColumn}
+                        onOpenModal={(id) => setSelectedCardId(id)}
                         projectTags={projectTags}
                         siblingColumns={effectiveColumns}
                         users={users}
                         activeUser={activeUser}
-                        swimlanes={swimlanes}
-                        swimlanesEnabled={swimlanesEnabled}
                         animationDelay={idx * 60}
                         isDraggingColumn={draggingColumnId !== null}
                       />
@@ -2426,7 +1954,7 @@ function AppInner() {
                       onMoveLeft={() => {}}
                       onMoveRight={() => {}}
                       onDelete={() => {}}
-                      onUpdate={() => {}}
+                      onOpenModal={() => {}}
                       users={users}
                       activeUser={activeUser}
                       availableTags={projectTags}
@@ -2474,6 +2002,7 @@ function AppInner() {
                 activeUser={activeUser}
                 actor={actor}
                 activeProjectId={activeProjectId}
+                onRestored={() => setActiveTab("board")}
               />
             </div>
           </div>
@@ -2489,6 +2018,26 @@ function AppInner() {
           />
         )}
       </main>
+
+      {/* Card Detail Modal — lifted here so column changes don't unmount it */}
+      {selectedCardId !== null && activeProjectId !== null && (
+        <CardDetailModal
+          cardId={selectedCardId}
+          projectId={activeProjectId}
+          onClose={() => setSelectedCardId(null)}
+          onUpdate={handleUpdateCard}
+          onAssign={handleAssignCard}
+          onUpdateTags={handleUpdateCardTags}
+          onUpdateDueDate={handleUpdateCardDueDate}
+          onArchive={handleArchiveCard}
+          onRestore={handleRestoreCard}
+          onMoveToColumn={handleMoveToColumn}
+          columns={effectiveColumns}
+          users={users}
+          activeUser={activeUser}
+          availableTags={projectTags}
+        />
+      )}
 
       {/* Footer */}
       <footer className="flex items-center justify-center gap-1.5 py-3 text-xs text-muted-foreground border-t border-border">

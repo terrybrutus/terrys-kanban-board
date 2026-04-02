@@ -48,7 +48,6 @@ import {
   Archive,
   ArchiveRestore,
   BarChart2,
-  BookOpen,
   Calendar,
   Check,
   ChevronDown,
@@ -64,15 +63,12 @@ import {
   MessageSquare,
   MoreHorizontal,
   Plus,
-  Redo2,
   Send,
   Tag as TagIcon,
   Trash2,
-  Undo2,
   UserCircle2,
   Users,
   X,
-  Zap,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -549,312 +545,6 @@ const ACCENT_CLASSES = [
   "col-accent-4",
   "col-accent-5",
 ];
-
-// ── Tutorial Steps (Spotlight) ────────────────────────────────────────────────
-
-interface TutorialStep {
-  title: string;
-  body: string;
-  /** data-tutorial attribute of the element to spotlight. null = no spotlight (general) */
-  target: string | null;
-  /** Where to position the tooltip relative to the target */
-  placement?: "top" | "bottom" | "left" | "right" | "center";
-}
-
-const TUTORIAL_STEPS: TutorialStep[] = [
-  {
-    title: "Welcome to the Board",
-    body: "This is a fully interactive Kanban board. Each column represents a stage in the Toyota production workflow. Cards flow left to right as work progresses — only pulled forward when the next stage is ready.",
-    target: "tutorial-board",
-    placement: "center",
-  },
-  {
-    title: "Board Columns",
-    body: "Each column is a workflow stage. The number badge shows how many cards are currently in that stage. Drag the grip handle (⠿) at the top of any column to reorder stages.",
-    target: "tutorial-column-0",
-    placement: "bottom",
-  },
-  {
-    title: "Cards",
-    body: "Each card is a work item. Cards show the title, tags, due date, assignee, and a checklist progress bar when items exist. Click anywhere on a card to open its full detail view.",
-    target: "tutorial-card-0",
-    placement: "right",
-  },
-  {
-    title: "Drag & Drop",
-    body: "Drag any card to a different column to advance it through the workflow. You can also use the ← → arrows that appear on hover to move cards one stage at a time.",
-    target: "tutorial-card-0",
-    placement: "right",
-  },
-  {
-    title: "Card Details",
-    body: "Click a card to open this modal. Edit the title, description, assignee, due date, and tags inline. The checklist section lets you track sub-tasks with a live progress bar. Comments are attributed to the active user.",
-    target: "tutorial-column-0",
-    placement: "right",
-  },
-  {
-    title: "Quick Add (⚡)",
-    body: 'Click the ⚡ icon at the bottom of any column for Quick Add mode. Type shortcuts inline: #TagName to assign a tag, @UserName to assign a person, due:YYYY-MM-DD to set a due date. Use @"Terry Brutus" for names with spaces.',
-    target: "tutorial-quickadd-0",
-    placement: "top",
-  },
-  {
-    title: "Add a Card",
-    body: "Click the + button at the bottom of any column to open a full card creation form with all fields available.",
-    target: "tutorial-addcard-0",
-    placement: "top",
-  },
-  {
-    title: "Horizontal Board Scroll",
-    body: "When your board has many columns, hold Shift and scroll your mouse wheel up or down to navigate left and right across the board. On trackpads, a horizontal two-finger swipe also works natively.",
-    target: "tutorial-board",
-    placement: "center",
-  },
-  {
-    title: "Filter Bar",
-    body: "Use the filter bar to instantly narrow down cards. Filter by assignee, tag, date range, or keyword. Active filters are shown as chips — click the × to remove them.",
-    target: "tutorial-filterbar",
-    placement: "bottom",
-  },
-  {
-    title: "Multi-select",
-    body: "Click the faint checkbox on the top-left of any card to enter selection mode. Shift+click for range select, Ctrl+click to toggle individual cards. A bulk action toolbar appears to move, tag, assign, or archive multiple cards at once.",
-    target: "tutorial-card-0",
-    placement: "right",
-  },
-  {
-    title: "Saved Filter Presets",
-    body: "Built a useful filter combination? Save it as a preset using the bookmark icon in the filter bar. Presets are saved per project and can be applied with a single click.",
-    target: "tutorial-filterbar",
-    placement: "bottom",
-  },
-  {
-    title: "Undo / Redo",
-    body: "Every action — moving cards, renaming columns, archiving — is tracked in the undo stack. Use Ctrl+Z / Cmd+Z to undo and Ctrl+Shift+Z / Cmd+Shift+Z to redo. The buttons are also in the header.",
-    target: "tutorial-undo",
-    placement: "bottom",
-  },
-  {
-    title: "Users Tab",
-    body: "The Users tab shows all team members and their roles. Switch active users here using a PIN. Admins can create tags, manage users, and configure the board.",
-    target: "tutorial-tab-users",
-    placement: "bottom",
-  },
-  {
-    title: "Activity Log",
-    body: "Every action on the board is logged in the Activity tab with a timestamp and the user who performed it — perfect for accountability and auditing workflow changes.",
-    target: "tutorial-tab-activity",
-    placement: "bottom",
-  },
-  {
-    title: "Dashboard",
-    body: "The Dashboard tab shows board health at a glance: cards per column, progress by assignee, tag usage, overdue cards, and completion rate — all computed live from the board data.",
-    target: "tutorial-tab-dashboard",
-    placement: "bottom",
-  },
-  {
-    title: "Explore Freely",
-    body: "That's everything! All features are fully functional — nothing is saved when you leave. Try creating cards, renaming columns, dragging items, or checking the Dashboard. This Tutorial button is always available to restart the walkthrough.",
-    target: "tutorial-tutorial-btn",
-    placement: "bottom",
-  },
-];
-
-// ── Tutorial Overlay ──────────────────────────────────────────────────────────
-
-function TutorialOverlay({
-  onClose,
-  forceOpen,
-}: {
-  onClose: () => void;
-  forceOpen?: boolean;
-}) {
-  const [step, setStep] = useState<null | number>(null); // null = intro screen
-
-  const currentStep = step !== null ? TUTORIAL_STEPS[step] : null;
-
-  function handleSkip() {
-    if (!forceOpen) {
-      sessionStorage.setItem("tutorial_overlay_seen", "1");
-    }
-    onClose();
-  }
-
-  function handleStart() {
-    setStep(0);
-  }
-
-  function handleNext() {
-    if (step === null) return;
-    if (step < TUTORIAL_STEPS.length - 1) {
-      setStep(step + 1);
-    } else {
-      if (!forceOpen) {
-        sessionStorage.setItem("tutorial_overlay_seen", "1");
-      }
-      onClose();
-    }
-  }
-
-  function handlePrev() {
-    if (step !== null && step > 0) {
-      setStep(step - 1);
-    }
-  }
-
-  // Keyboard navigation
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") handleSkip();
-      if (e.key === "ArrowRight" || e.key === "Enter") {
-        if (step !== null) handleNext();
-      }
-      if (e.key === "ArrowLeft" && step !== null && step > 0) handlePrev();
-    }
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  });
-
-  // ── Intro screen ────────────────────────────────────────────────────────────
-  if (step === null) {
-    return (
-      <div
-        className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm"
-        role="presentation"
-        onClick={(e) => {
-          if (e.target === e.currentTarget) handleSkip();
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "Escape") handleSkip();
-        }}
-      >
-        <div className="w-full max-w-md mx-4 rounded-2xl border border-border bg-card shadow-2xl overflow-hidden">
-          <div className="px-8 py-8 text-center space-y-5">
-            <div className="h-14 w-14 rounded-2xl col-accent-0 col-accent-bar flex items-center justify-center mx-auto">
-              <BookOpen className="h-7 w-7 text-white" />
-            </div>
-            <div className="space-y-2">
-              <h2 className="font-display font-bold text-xl text-foreground">
-                Welcome to the Tutorial
-              </h2>
-              <p className="text-sm text-muted-foreground leading-relaxed">
-                This is a fully interactive Kanban board. The tutorial will walk
-                you through every feature — {TUTORIAL_STEPS.length} steps total.
-              </p>
-            </div>
-            <div className="flex flex-col gap-2 pt-1">
-              <Button onClick={handleStart} className="w-full gap-2">
-                <BookOpen className="h-4 w-4" />
-                Start Tutorial ({TUTORIAL_STEPS.length} steps)
-              </Button>
-              <Button
-                variant="ghost"
-                onClick={handleSkip}
-                className="w-full text-muted-foreground"
-              >
-                Skip — jump straight in
-              </Button>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // ── Tutorial step view — centered modal over dimmed/blurred board ────────────
-  return (
-    <div
-      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm"
-      aria-hidden="true"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) handleSkip();
-      }}
-      onKeyDown={(e) => {
-        if (e.key === "Escape") handleSkip();
-      }}
-    >
-      <dialog
-        open
-        className="w-full max-w-md mx-4 rounded-2xl border border-border bg-card shadow-2xl overflow-hidden p-0 m-0 static"
-        aria-label="Tutorial step"
-        onClick={(e) => e.stopPropagation()}
-        onKeyDown={(e) => e.stopPropagation()}
-      >
-        {/* Progress bar at top */}
-        <div className="h-1 w-full bg-secondary">
-          <div
-            className="h-full bg-blue-600 transition-all duration-300"
-            style={{ width: `${((step + 1) / TUTORIAL_STEPS.length) * 100}%` }}
-          />
-        </div>
-
-        <div className="px-8 py-6 space-y-4">
-          {/* Step counter */}
-          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
-            Step {step + 1} of {TUTORIAL_STEPS.length}
-          </p>
-
-          {/* Title */}
-          <h2 className="font-display font-bold text-xl text-foreground leading-tight">
-            {currentStep?.title}
-          </h2>
-
-          {/* Body */}
-          <p className="text-sm text-muted-foreground leading-relaxed">
-            {currentStep?.body}
-          </p>
-
-          {/* Navigation row */}
-          <div className="flex items-center justify-between pt-2">
-            <button
-              type="button"
-              onClick={handleSkip}
-              className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-            >
-              Exit tutorial
-            </button>
-            <div className="flex items-center gap-2">
-              {step > 0 && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={handlePrev}
-                  className="h-8 text-xs px-3"
-                >
-                  Back
-                </Button>
-              )}
-              <Button
-                size="sm"
-                onClick={handleNext}
-                className="h-8 text-xs px-4 gap-1"
-              >
-                {step < TUTORIAL_STEPS.length - 1 ? "Next →" : "Finish ✓"}
-              </Button>
-            </div>
-          </div>
-
-          {/* Step dots */}
-          <div className="flex items-center justify-center gap-1 pt-1">
-            {TUTORIAL_STEPS.map((tutStep, i) => (
-              <button
-                key={tutStep.title}
-                type="button"
-                onClick={() => setStep(i)}
-                className={`rounded-full transition-all ${
-                  i === step
-                    ? "w-4 h-1.5 bg-blue-600"
-                    : "w-1.5 h-1.5 bg-secondary hover:bg-secondary/80"
-                }`}
-                title={`Go to step ${i + 1}: ${tutStep.title}`}
-              />
-            ))}
-          </div>
-        </div>
-      </dialog>
-    </div>
-  );
-}
 
 // ── Card Modal ────────────────────────────────────────────────────────────────
 
@@ -1626,13 +1316,6 @@ function DroppableColumn({
     if (addingCard) addRef.current?.focus();
   }, [addingCard]);
 
-  const [showQuickAdd, setShowQuickAdd] = useState(false);
-  const [quickText, setQuickText] = useState("");
-  const quickRef = useRef<HTMLTextAreaElement>(null);
-  useEffect(() => {
-    if (showQuickAdd) quickRef.current?.focus();
-  }, [showQuickAdd]);
-
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteDest, setDeleteDest] = useState<string>("none");
 
@@ -1679,29 +1362,6 @@ function DroppableColumn({
     setNewTitle("");
     setNewDesc("");
     setAddingCard(false);
-  }
-
-  function handleQuickAddSubmit() {
-    const lines = quickText
-      .split("\n")
-      .map((l) => l.trim())
-      .filter(Boolean);
-    for (const line of lines) {
-      // Parse #tag and @user shortcuts (simple matching)
-      let title = line;
-      title = title
-        .replace(/#\S+/g, "")
-        .replace(/@\S+/g, "")
-        .replace(/\s+/g, " ")
-        .trim();
-      if (title) onAddCard(column.id, title);
-    }
-    setQuickText("");
-    setShowQuickAdd(false);
-    if (lines.length)
-      toast.success(
-        `${lines.length} card${lines.length !== 1 ? "s" : ""} created`,
-      );
   }
 
   const siblingsExcludeSelf = allColumns.filter((c) => c.id !== column.id);
@@ -1861,19 +1521,6 @@ function DroppableColumn({
               >
                 {visibleCards.length}
               </Badge>
-              <button
-                type="button"
-                onClick={() => setShowQuickAdd((v) => !v)}
-                className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors shrink-0"
-                title="Quick add"
-                data-tutorial={
-                  tutorialIdx !== undefined
-                    ? `tutorial-quickadd-${tutorialIdx}`
-                    : undefined
-                }
-              >
-                <Zap className="h-3.5 w-3.5" />
-              </button>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button
@@ -1904,48 +1551,6 @@ function DroppableColumn({
             </>
           )}
         </div>
-
-        {/* Quick Add */}
-        {showQuickAdd && (
-          <div className="mx-3 mb-2 rounded-lg border border-primary/20 bg-primary/5 p-3 space-y-2">
-            <div className="flex items-center gap-2">
-              <Zap className="h-3.5 w-3.5 text-primary shrink-0" />
-              <span className="text-xs font-semibold text-primary">
-                Quick Add
-              </span>
-            </div>
-            <Textarea
-              ref={quickRef}
-              value={quickText}
-              onChange={(e) => setQuickText(e.target.value)}
-              placeholder={"One card per line\nInspect part batch #Active"}
-              rows={3}
-              className="text-xs resize-none"
-            />
-            <div className="flex gap-2">
-              <Button
-                size="sm"
-                className="h-7 text-xs px-3 gap-1"
-                onClick={handleQuickAddSubmit}
-                disabled={!quickText.trim()}
-              >
-                <Zap className="h-3 w-3" />
-                Create
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-7 text-xs px-3"
-                onClick={() => {
-                  setShowQuickAdd(false);
-                  setQuickText("");
-                }}
-              >
-                Cancel
-              </Button>
-            </div>
-          </div>
-        )}
 
         {/* Cards */}
         <SortableContext items={cardIds} strategy={verticalListSortingStrategy}>
@@ -2644,43 +2249,6 @@ function DashboardTabT({
 
 // ── Undo/Redo ─────────────────────────────────────────────────────────────────
 
-interface UndoEntry {
-  label: string;
-  undo: () => void;
-  redo: () => void;
-}
-
-function useUndoRedo() {
-  const [stack, setStack] = useState<UndoEntry[]>([]);
-  const [pointer, setPointer] = useState(-1);
-
-  function push(entry: UndoEntry) {
-    setStack((prev) => {
-      const next = prev.slice(0, pointer + 1);
-      return [...next, entry].slice(-50);
-    });
-    setPointer((p) => Math.min(p + 1, 49));
-  }
-
-  function undo() {
-    if (pointer < 0) return;
-    stack[pointer].undo();
-    setPointer((p) => p - 1);
-  }
-
-  function redo() {
-    if (pointer >= stack.length - 1) return;
-    const next = stack[pointer + 1];
-    next.redo();
-    setPointer((p) => p + 1);
-  }
-
-  const canUndo = pointer >= 0;
-  const canRedo = pointer < stack.length - 1;
-
-  return { push, undo, redo, canUndo, canRedo };
-}
-
 // ── Main TutorialApp ──────────────────────────────────────────────────────────
 
 export default function TutorialApp() {
@@ -2696,22 +2264,6 @@ export default function TutorialApp() {
   const [addingColumn, setAddingColumn] = useState(false);
   const [newColumnName, setNewColumnName] = useState("");
 
-  // ── Tutorial overlay ──────────────────────────────────────────────────────
-  const [overlayOpen, setOverlayOpen] = useState(() => {
-    return !sessionStorage.getItem("tutorial_overlay_seen");
-  });
-  const [overlayForced, setOverlayForced] = useState(false);
-
-  function openTutorial() {
-    setOverlayForced(true);
-    setOverlayOpen(true);
-  }
-
-  function closeOverlay() {
-    setOverlayOpen(false);
-    setOverlayForced(false);
-  }
-
   // ── Filter state ──────────────────────────────────────────────────────────
   const [filters, setFilters] = useState({
     assigneeId: null as string | null,
@@ -2720,34 +2272,6 @@ export default function TutorialApp() {
     unassignedOnly: false,
     showArchived: false,
   });
-
-  // ── Undo/Redo ─────────────────────────────────────────────────────────────
-  const { push: pushUndo, undo, redo, canUndo, canRedo } = useUndoRedo();
-
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if (activeTab !== "board") return;
-      const target = e.target as HTMLElement;
-      if (
-        target.tagName === "INPUT" ||
-        target.tagName === "TEXTAREA" ||
-        target.isContentEditable
-      )
-        return;
-      const isMac = navigator.platform.toUpperCase().includes("MAC");
-      const ctrl = isMac ? e.metaKey : e.ctrlKey;
-      if (ctrl && e.key === "z" && !e.shiftKey) {
-        e.preventDefault();
-        undo();
-      }
-      if (ctrl && (e.key === "Z" || (e.key === "z" && e.shiftKey))) {
-        e.preventDefault();
-        redo();
-      }
-    }
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [activeTab, undo, redo]);
 
   // ── Activity helper ───────────────────────────────────────────────────────
   function logActivity(text: string, userId?: string) {
@@ -2776,12 +2300,6 @@ export default function TutorialApp() {
     };
     setCards((prev) => [...prev, newCard]);
     logActivity(`${activeUser.name} created "${title}"`);
-    const prevCards = cards;
-    pushUndo({
-      label: "Add card",
-      undo: () => setCards(prevCards),
-      redo: () => setCards((p) => [...p, newCard]),
-    });
   }
 
   function updateCard(cardId: string, patch: Partial<TCard>) {
@@ -2792,14 +2310,8 @@ export default function TutorialApp() {
 
   function deleteCard(cardId: string) {
     const card = cards.find((c) => c.id === cardId);
-    const prev = cards;
     setCards((p) => p.filter((c) => c.id !== cardId));
     logActivity(`${activeUser.name} deleted "${card?.title ?? cardId}"`);
-    pushUndo({
-      label: "Delete card",
-      undo: () => setCards(prev),
-      redo: () => setCards((p) => p.filter((c) => c.id !== cardId)),
-    });
   }
 
   function archiveCard(cardId: string) {
@@ -2808,22 +2320,10 @@ export default function TutorialApp() {
       prev.map((c) => (c.id === cardId ? { ...c, isArchived: true } : c)),
     );
     logActivity(`${activeUser.name} archived "${card?.title ?? cardId}"`);
-    pushUndo({
-      label: "Archive card",
-      undo: () =>
-        setCards((p) =>
-          p.map((c) => (c.id === cardId ? { ...c, isArchived: false } : c)),
-        ),
-      redo: () =>
-        setCards((p) =>
-          p.map((c) => (c.id === cardId ? { ...c, isArchived: true } : c)),
-        ),
-    });
   }
 
   function moveCardTo(cardId: string, targetColId: string) {
     const card = cards.find((c) => c.id === cardId);
-    const prevColId = card?.columnId;
     setCards((prev) =>
       prev.map((c) => (c.id === cardId ? { ...c, columnId: targetColId } : c)),
     );
@@ -2831,23 +2331,9 @@ export default function TutorialApp() {
     logActivity(
       `${activeUser.name} moved "${card?.title}" to ${targetCol?.name}`,
     );
-    pushUndo({
-      label: "Move card",
-      undo: () =>
-        setCards((p) =>
-          p.map((c) =>
-            c.id === cardId ? { ...c, columnId: prevColId ?? c.columnId } : c,
-          ),
-        ),
-      redo: () =>
-        setCards((p) =>
-          p.map((c) => (c.id === cardId ? { ...c, columnId: targetColId } : c)),
-        ),
-    });
   }
 
   function moveMultipleCards(cardIds: string[], targetColId: string) {
-    const prevCards = cards;
     setCards((prev) =>
       prev.map((c) =>
         cardIds.includes(c.id) ? { ...c, columnId: targetColId } : c,
@@ -2857,16 +2343,6 @@ export default function TutorialApp() {
     logActivity(
       `${activeUser.name} moved ${cardIds.length} cards to ${targetCol?.name}`,
     );
-    pushUndo({
-      label: "Move cards",
-      undo: () => setCards(prevCards),
-      redo: () =>
-        setCards((p) =>
-          p.map((c) =>
-            cardIds.includes(c.id) ? { ...c, columnId: targetColId } : c,
-          ),
-        ),
-    });
   }
 
   // ── Column operations ─────────────────────────────────────────────────────
@@ -3048,11 +2524,6 @@ export default function TutorialApp() {
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
-      {/* Tutorial overlay */}
-      {overlayOpen && (
-        <TutorialOverlay onClose={closeOverlay} forceOpen={overlayForced} />
-      )}
-
       {/* Card modal */}
       {selectedCard && (
         <CardModal
@@ -3134,45 +2605,6 @@ export default function TutorialApp() {
         </nav>
 
         <div className="ml-auto flex items-center gap-2">
-          {/* Tutorial button */}
-          <button
-            type="button"
-            onClick={openTutorial}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors"
-            title="Open tutorial"
-            data-tutorial="tutorial-tutorial-btn"
-          >
-            <BookOpen className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Tutorial</span>
-          </button>
-
-          {/* Undo/Redo */}
-          {activeTab === "board" && (
-            <>
-              <button
-                type="button"
-                onClick={undo}
-                disabled={!canUndo}
-                data-tutorial="tutorial-undo"
-                className="flex items-center gap-1 px-2.5 py-1.5 rounded-md text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors disabled:opacity-30 disabled:pointer-events-none"
-                title="Undo"
-              >
-                <Undo2 className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">Undo</span>
-              </button>
-              <button
-                type="button"
-                onClick={redo}
-                disabled={!canRedo}
-                className="flex items-center gap-1 px-2.5 py-1.5 rounded-md text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors disabled:opacity-30 disabled:pointer-events-none"
-                title="Redo"
-              >
-                <Redo2 className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">Redo</span>
-              </button>
-            </>
-          )}
-
           {/* Active user switcher */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

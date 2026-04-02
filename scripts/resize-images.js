@@ -3,7 +3,9 @@ import { promises as fs } from "fs";
 import path from "path";
 
 const DIMENSION_PATTERN = /^(.+?)\.dim_(\d+)x(\d+)(\.[^.]+)$/;
-const ASSETS_DIR = "src/frontend/dist/assets/generated";
+const DIST_ASSETS_DIR = "src/frontend/dist/assets";
+const GENERATED_DIR = path.join(DIST_ASSETS_DIR, "generated");
+const IMAGE_DIRS = [GENERATED_DIR, DIST_ASSETS_DIR];
 
 async function fileExists(filePath) {
   try {
@@ -55,18 +57,17 @@ function getOutputOptions(ext) {
   }
 }
 
-async function resizeImages() {
-  if (!(await fileExists(ASSETS_DIR))) {
-    console.log(`Directory ${ASSETS_DIR} does not exist, skipping resize`);
-    return;
+async function resizeImagesInDir(dir) {
+  if (!(await fileExists(dir))) {
+    return 0;
   }
 
   let files;
   try {
-    files = await fs.readdir(ASSETS_DIR);
+    files = await fs.readdir(dir);
   } catch (error) {
-    console.log(`Could not read ${ASSETS_DIR}: ${error.message}`);
-    return;
+    console.log(`Could not read ${dir}: ${error.message}`);
+    return 0;
   }
 
   let resizedCount = 0;
@@ -75,7 +76,7 @@ async function resizeImages() {
     const match = file.match(DIMENSION_PATTERN);
     if (match) {
       const [, , width, height, ext] = match;
-      const filePath = path.join(ASSETS_DIR, file);
+      const filePath = path.join(dir, file);
       const outputConfig = getOutputOptions(ext);
 
       if (!outputConfig) {
@@ -102,6 +103,26 @@ async function resizeImages() {
         console.error(`Failed to resize ${file}:`, error.message);
       }
     }
+  }
+
+  return resizedCount;
+}
+
+async function resizeImages() {
+  let totalResized = 0;
+
+  for (const dir of IMAGE_DIRS) {
+    const count = await resizeImagesInDir(dir);
+    if (count > 0) {
+      console.log(`Resized ${count} image(s) in ${dir}`);
+    }
+    totalResized += count;
+  }
+
+  if (totalResized > 0) {
+    console.log(`Resized ${totalResized} image(s) total`);
+  } else {
+    console.log("No images to resize");
   }
 }
 
