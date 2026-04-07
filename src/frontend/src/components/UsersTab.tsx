@@ -1075,19 +1075,21 @@ function UserRow({
             </Button>
           )}
           {/* Admin reset PIN for other users — without switching active user */}
-          {!isActive && (activeUser?.isAdmin || activeUser?.isMasterAdmin) && (
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-7 text-xs px-2 text-muted-foreground hover:text-amber-600"
-              onClick={() =>
-                setAction(action === "resetPin" ? null : "resetPin")
-              }
-              title="Reset this user's PIN (admin)"
-            >
-              <KeyRound className="h-3.5 w-3.5" />
-            </Button>
-          )}
+          {!isActive &&
+            !user.isMasterAdmin &&
+            (activeUser?.isAdmin || activeUser?.isMasterAdmin) && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 text-xs px-2 text-muted-foreground hover:text-amber-600"
+                onClick={() =>
+                  setAction(action === "resetPin" ? null : "resetPin")
+                }
+                title="Reset this user's PIN (admin)"
+              >
+                <KeyRound className="h-3.5 w-3.5" />
+              </Button>
+            )}
           {!isActive && (
             <Button
               size="sm"
@@ -1598,83 +1600,92 @@ export default function UsersTab({
       {/* Access key section — master admin only */}
       <AccessKeySection activeUser={activeUser} />
 
-      {/* Add user form */}
-      <div className="rounded-xl border border-border bg-card shadow-column overflow-hidden">
-        <div className="px-5 pt-4 pb-3 border-b border-border">
-          <h2 className="font-display font-semibold text-base text-foreground flex items-center gap-2">
-            <UserPlus className="h-4 w-4 text-primary" />
-            Add User
-          </h2>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Create a user account with a 4-digit PIN for collaboration.
-          </p>
-        </div>
-        <div className="p-5 space-y-3">
-          <div className="space-y-1.5">
-            <label
-              htmlFor="user-name-input"
-              className="text-xs font-medium text-muted-foreground uppercase tracking-wide"
-            >
-              Name
-            </label>
-            <Input
-              id="user-name-input"
-              placeholder="e.g. Alex Johnson"
-              value={name}
-              onChange={(e) => {
-                setName(e.target.value);
-                setNameError("");
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleAddUser();
-              }}
-              disabled={isCreating}
-              className="text-sm"
-            />
-            {nameError && (
-              <p className="text-xs text-destructive">{nameError}</p>
-            )}
+      {/* Add user form — admin only */}
+      {activeUser?.isAdmin || activeUser?.isMasterAdmin ? (
+        <div className="rounded-xl border border-border bg-card shadow-column overflow-hidden">
+          <div className="px-5 pt-4 pb-3 border-b border-border">
+            <h2 className="font-display font-semibold text-base text-foreground flex items-center gap-2">
+              <UserPlus className="h-4 w-4 text-primary" />
+              Add User
+            </h2>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Create a user account with a 4-digit PIN for collaboration.
+            </p>
           </div>
-          <div className="space-y-1.5">
-            <label
-              htmlFor="user-pin-input"
-              className="text-xs font-medium text-muted-foreground uppercase tracking-wide"
+          <div className="p-5 space-y-3">
+            <div className="space-y-1.5">
+              <label
+                htmlFor="user-name-input"
+                className="text-xs font-medium text-muted-foreground uppercase tracking-wide"
+              >
+                Name
+              </label>
+              <Input
+                id="user-name-input"
+                placeholder="e.g. Alex Johnson"
+                value={name}
+                onChange={(e) => {
+                  setName(e.target.value);
+                  setNameError("");
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleAddUser();
+                }}
+                disabled={isCreating}
+                className="text-sm"
+              />
+              {nameError && (
+                <p className="text-xs text-destructive">{nameError}</p>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              <label
+                htmlFor="user-pin-input"
+                className="text-xs font-medium text-muted-foreground uppercase tracking-wide"
+              >
+                4-Digit PIN
+              </label>
+              <PinInput
+                id="user-pin-input"
+                value={pin}
+                onChange={(v) => {
+                  setPin(v);
+                  setPinError("");
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleAddUser();
+                }}
+                disabled={isCreating}
+              />
+              {pinError && (
+                <p className="text-xs text-destructive">{pinError}</p>
+              )}
+            </div>
+            <Button
+              className="w-full gap-2"
+              onClick={handleAddUser}
+              disabled={!name.trim() || pin.length !== 4 || isCreating}
             >
-              4-Digit PIN
-            </label>
-            <PinInput
-              id="user-pin-input"
-              value={pin}
-              onChange={(v) => {
-                setPin(v);
-                setPinError("");
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleAddUser();
-              }}
-              disabled={isCreating}
-            />
-            {pinError && <p className="text-xs text-destructive">{pinError}</p>}
+              {isCreating ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Adding…
+                </>
+              ) : (
+                <>
+                  <UserPlus className="h-4 w-4" />
+                  Add User
+                </>
+              )}
+            </Button>
           </div>
-          <Button
-            className="w-full gap-2"
-            onClick={handleAddUser}
-            disabled={!name.trim() || pin.length !== 4 || isCreating}
-          >
-            {isCreating ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Adding…
-              </>
-            ) : (
-              <>
-                <UserPlus className="h-4 w-4" />
-                Add User
-              </>
-            )}
-          </Button>
         </div>
-      </div>
+      ) : (
+        <div className="text-sm text-muted-foreground italic px-4 py-3 border rounded-md bg-muted/30">
+          Only admins can add new users. Contact your administrator to request
+          access.
+        </div>
+      )}
 
       {/* User list */}
       <div className="space-y-3">

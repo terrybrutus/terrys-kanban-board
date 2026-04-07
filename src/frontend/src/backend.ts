@@ -233,6 +233,7 @@ export interface backendInterface {
     resetUserPin(userId: bigint, actorUserId: bigint, newPinHash: string): Promise<void>;
     restoreCard(cardId: bigint, actorUserId: bigint): Promise<void>;
     revokeSnapshotAccess(userId: bigint, actorUserId: bigint): Promise<void>;
+    getUserSnapshotAccess(userId: bigint): Promise<boolean>;
     saveFilterPreset(projectId: bigint, createdByUserId: bigint, name: string, assigneeId: bigint | null, tagIds: Array<bigint>, unassignedOnly: boolean, textSearch: string, dateField: string | null, dateFrom: string, dateTo: string): Promise<bigint>;
     setAccessKey(newKey: string, actorUserId: bigint): Promise<void>;
     setColumnComplete(columnId: bigint, isComplete: boolean, actorUserId: bigint): Promise<void>;
@@ -988,6 +989,20 @@ export class Backend implements backendInterface {
             }
         } else {
             const result = await this.actor.revokeSnapshotAccess(arg0, arg1);
+            return result;
+        }
+    }
+    async getUserSnapshotAccess(arg0: bigint): Promise<boolean> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getUserSnapshotAccess(arg0);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getUserSnapshotAccess(arg0);
             return result;
         }
     }

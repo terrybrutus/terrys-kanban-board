@@ -334,6 +334,9 @@ export default function ProjectExportImport({
 }: ProjectExportImportProps) {
   const queryClient = useQueryClient();
 
+  const isAdmin =
+    activeUser?.isAdmin === true || activeUser?.isMasterAdmin === true;
+
   // ── Export state ────────────────────────────────────────────────────────────
   const [exporting, setExporting] = useState(false);
   const [copying, setCopying] = useState(false);
@@ -591,208 +594,223 @@ export default function ProjectExportImport({
         <Separator />
 
         {/* Import section */}
-        <div className="space-y-3">
-          <div className="flex items-center gap-2">
-            <Upload className="h-4 w-4 text-muted-foreground" />
-            <h3 className="text-sm font-semibold text-foreground">
-              Import project
-            </h3>
-          </div>
-          <p className="text-xs text-muted-foreground leading-relaxed">
-            Import a previously exported JSON file. A mapping screen will appear
-            so you can align incoming fields with your current app before any
-            data is written.
-          </p>
+        {isAdmin ? (
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <Upload className="h-4 w-4 text-muted-foreground" />
+              <h3 className="text-sm font-semibold text-foreground">
+                Import project
+              </h3>
+            </div>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              Import a previously exported JSON file. A mapping screen will
+              appear so you can align incoming fields with your current app
+              before any data is written.
+            </p>
 
-          {/* Input mode toggle */}
-          <div className="flex gap-1.5">
-            <button
-              type="button"
-              onClick={() => {
-                setInputMode("file");
-                setParsedPayload(null);
-                setPasteText("");
-                setPasteError(null);
-              }}
-              className={`text-xs px-3 py-1.5 rounded-md border transition-colors ${
-                inputMode === "file"
-                  ? "bg-secondary border-border text-foreground"
-                  : "border-transparent text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              <span className="flex items-center gap-1.5">
-                <FileJson className="h-3 w-3" />
-                Upload file
-              </span>
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setInputMode("paste");
-                setParsedPayload(null);
-                setImportFile(null);
-                setParseError(null);
-              }}
-              className={`text-xs px-3 py-1.5 rounded-md border transition-colors ${
-                inputMode === "paste"
-                  ? "bg-secondary border-border text-foreground"
-                  : "border-transparent text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              <span className="flex items-center gap-1.5">
-                <FileText className="h-3 w-3" />
-                Paste JSON
-              </span>
-            </button>
-          </div>
+            {/* Input mode toggle */}
+            <div className="flex gap-1.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setInputMode("file");
+                  setParsedPayload(null);
+                  setPasteText("");
+                  setPasteError(null);
+                }}
+                className={`text-xs px-3 py-1.5 rounded-md border transition-colors ${
+                  inputMode === "file"
+                    ? "bg-secondary border-border text-foreground"
+                    : "border-transparent text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <span className="flex items-center gap-1.5">
+                  <FileJson className="h-3 w-3" />
+                  Upload file
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setInputMode("paste");
+                  setParsedPayload(null);
+                  setImportFile(null);
+                  setParseError(null);
+                }}
+                className={`text-xs px-3 py-1.5 rounded-md border transition-colors ${
+                  inputMode === "paste"
+                    ? "bg-secondary border-border text-foreground"
+                    : "border-transparent text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <span className="flex items-center gap-1.5">
+                  <FileText className="h-3 w-3" />
+                  Paste JSON
+                </span>
+              </button>
+            </div>
 
-          {/* File picker */}
-          {inputMode === "file" && (
-            <>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".json,application/json"
-                onChange={handleFileChange}
-                className="hidden"
-                data-ocid="import.upload_button"
-              />
-              <div className="flex items-center gap-2">
+            {/* File picker */}
+            {inputMode === "file" && (
+              <>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".json,application/json"
+                  onChange={handleFileChange}
+                  className="hidden"
+                  data-ocid="import.upload_button"
+                />
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={importing}
+                    className="gap-2 h-8 text-xs"
+                    data-ocid="import.primary_button"
+                  >
+                    <FileJson className="h-3.5 w-3.5" />
+                    Choose JSON file
+                  </Button>
+                  {importFile && (
+                    <span className="text-xs text-muted-foreground truncate max-w-[140px]">
+                      {importFile.name}
+                    </span>
+                  )}
+                </div>
+              </>
+            )}
+
+            {/* Paste JSON area */}
+            {inputMode === "paste" && (
+              <div className="space-y-2">
+                <Textarea
+                  value={pasteText}
+                  onChange={(e) => handlePasteTextChange(e.target.value)}
+                  placeholder='Paste your exported JSON here… (e.g. {"schemaVersion": 1, "project": {...}})'
+                  rows={8}
+                  className="text-xs font-mono resize-y"
+                  disabled={importing}
+                  data-ocid="import.editor"
+                />
+                {parsedPayload && !pasteError && (
+                  <p className="text-xs text-emerald-600 flex items-center gap-1.5">
+                    <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+                    Valid JSON — ready to map and import
+                  </p>
+                )}
+              </div>
+            )}
+
+            {hasParseError && (
+              <p className="text-xs text-destructive flex items-center gap-1.5">
+                <XCircle className="h-3.5 w-3.5 shrink-0" />
+                {inputMode === "file" ? parseError : pasteError}
+              </p>
+            )}
+
+            {hasFile && (
+              <div className="space-y-3 pt-1">
+                {/* Import mode selector */}
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-foreground">
+                    Import mode
+                  </p>
+                  <div className="space-y-2">
+                    <label className="flex items-start gap-2.5 cursor-pointer group">
+                      <input
+                        type="radio"
+                        name="importMode"
+                        value="merge"
+                        checked={importMode === "merge"}
+                        onChange={() => setImportMode("merge")}
+                        className="mt-0.5 accent-primary"
+                      />
+                      <div>
+                        <p className="text-xs font-medium text-foreground group-hover:text-primary transition-colors">
+                          Merge
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Add new items; skip existing ones and report conflicts
+                        </p>
+                      </div>
+                    </label>
+                    <label className="flex items-start gap-2.5 cursor-pointer group">
+                      <input
+                        type="radio"
+                        name="importMode"
+                        value="replace"
+                        checked={importMode === "replace"}
+                        onChange={() => setImportMode("replace")}
+                        className="mt-0.5 accent-primary"
+                      />
+                      <div>
+                        <p className="text-xs font-medium text-foreground group-hover:text-destructive transition-colors">
+                          Replace
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Wipe this project and replace all data with the import
+                          file
+                        </p>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+
+                {importMode === "replace" && (
+                  <div className="flex items-start gap-2 rounded-lg bg-destructive/8 border border-destructive/20 px-3 py-2">
+                    <AlertTriangle className="h-3.5 w-3.5 text-destructive shrink-0 mt-0.5" />
+                    <p className="text-xs text-destructive">
+                      Replace mode will permanently delete all current columns,
+                      cards, and tags in this project before importing.
+                    </p>
+                  </div>
+                )}
+
                 <Button
                   size="sm"
-                  variant="outline"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={importing}
-                  className="gap-2 h-8 text-xs"
-                  data-ocid="import.primary_button"
+                  onClick={() => setShowMappingModal(true)}
+                  disabled={importing || !activeUser}
+                  className="gap-2 h-8 text-xs w-full"
+                  variant={importMode === "replace" ? "destructive" : "default"}
+                  data-ocid="import.open_modal_button"
                 >
-                  <FileJson className="h-3.5 w-3.5" />
-                  Choose JSON file
+                  {importing ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Importing…
+                    </>
+                  ) : (
+                    <>
+                      <MapPin className="h-3.5 w-3.5" />
+                      Review & map fields…
+                    </>
+                  )}
                 </Button>
-                {importFile && (
-                  <span className="text-xs text-muted-foreground truncate max-w-[140px]">
-                    {importFile.name}
-                  </span>
-                )}
-              </div>
-            </>
-          )}
 
-          {/* Paste JSON area */}
-          {inputMode === "paste" && (
-            <div className="space-y-2">
-              <Textarea
-                value={pasteText}
-                onChange={(e) => handlePasteTextChange(e.target.value)}
-                placeholder='Paste your exported JSON here… (e.g. {"schemaVersion": 1, "project": {...}})'
-                rows={8}
-                className="text-xs font-mono resize-y"
-                disabled={importing}
-                data-ocid="import.editor"
-              />
-              {parsedPayload && !pasteError && (
-                <p className="text-xs text-emerald-600 flex items-center gap-1.5">
-                  <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
-                  Valid JSON — ready to map and import
-                </p>
-              )}
-            </div>
-          )}
-
-          {hasParseError && (
-            <p className="text-xs text-destructive flex items-center gap-1.5">
-              <XCircle className="h-3.5 w-3.5 shrink-0" />
-              {inputMode === "file" ? parseError : pasteError}
-            </p>
-          )}
-
-          {hasFile && (
-            <div className="space-y-3 pt-1">
-              {/* Import mode selector */}
-              <div className="space-y-2">
-                <p className="text-xs font-medium text-foreground">
-                  Import mode
-                </p>
-                <div className="space-y-2">
-                  <label className="flex items-start gap-2.5 cursor-pointer group">
-                    <input
-                      type="radio"
-                      name="importMode"
-                      value="merge"
-                      checked={importMode === "merge"}
-                      onChange={() => setImportMode("merge")}
-                      className="mt-0.5 accent-primary"
-                    />
-                    <div>
-                      <p className="text-xs font-medium text-foreground group-hover:text-primary transition-colors">
-                        Merge
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        Add new items; skip existing ones and report conflicts
-                      </p>
-                    </div>
-                  </label>
-                  <label className="flex items-start gap-2.5 cursor-pointer group">
-                    <input
-                      type="radio"
-                      name="importMode"
-                      value="replace"
-                      checked={importMode === "replace"}
-                      onChange={() => setImportMode("replace")}
-                      className="mt-0.5 accent-primary"
-                    />
-                    <div>
-                      <p className="text-xs font-medium text-foreground group-hover:text-destructive transition-colors">
-                        Replace
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        Wipe this project and replace all data with the import
-                        file
-                      </p>
-                    </div>
-                  </label>
-                </div>
-              </div>
-
-              {importMode === "replace" && (
-                <div className="flex items-start gap-2 rounded-lg bg-destructive/8 border border-destructive/20 px-3 py-2">
-                  <AlertTriangle className="h-3.5 w-3.5 text-destructive shrink-0 mt-0.5" />
-                  <p className="text-xs text-destructive">
-                    Replace mode will permanently delete all current columns,
-                    cards, and tags in this project before importing.
+                {!activeUser && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400">
+                    Set an active user to enable import.
                   </p>
-                </div>
-              )}
-
-              <Button
-                size="sm"
-                onClick={() => setShowMappingModal(true)}
-                disabled={importing || !activeUser}
-                className="gap-2 h-8 text-xs w-full"
-                variant={importMode === "replace" ? "destructive" : "default"}
-                data-ocid="import.open_modal_button"
-              >
-                {importing ? (
-                  <>
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    Importing…
-                  </>
-                ) : (
-                  <>
-                    <MapPin className="h-3.5 w-3.5" />
-                    Review & map fields…
-                  </>
                 )}
-              </Button>
-
-              {!activeUser && (
-                <p className="text-xs text-amber-600 dark:text-amber-400">
-                  Set an active user to enable import.
-                </p>
-              )}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <Upload className="h-4 w-4 text-muted-foreground" />
+              <h3 className="text-sm font-semibold text-foreground">
+                Import project
+              </h3>
             </div>
-          )}
-        </div>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              Import is restricted to admins. Contact an admin to restore or
+              replace board data.
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Pre-import mapping modal */}

@@ -12,6 +12,7 @@ import Iter "mo:core/Iter";
 
 
 
+(with migration = func (old : { var snapshotAccessList : Map.Map<Nat, Bool> }) : {} { {} })
 actor {
   ///////////////////////////
   // Types
@@ -185,7 +186,6 @@ actor {
   let swimlanes = Map.empty<Nat, Swimlane>();
   let checklists = Map.empty<Nat, ChecklistItem>();
   let snapshots = Map.empty<Nat, Snapshot>();
-  let snapshotAccessList = Map.empty<Nat, Bool>();
 
   var nextProjectId = 1;
   var nextUserId = 1;
@@ -269,7 +269,7 @@ actor {
   ///////////////////////////
 
   public shared ({ caller }) func takeSnapshot(snapshotLabel : Text, actorUserId : Nat) : async Nat {
-    if (not isMasterAdmin(actorUserId) and not hasSnapshotAccess(actorUserId)) {
+    if (not isMasterAdmin(actorUserId)) {
       Runtime.trap("Not authorized to take snapshots");
     };
 
@@ -587,12 +587,6 @@ actor {
     };
   };
 
-  func hasSnapshotAccess(userId : Nat) : Bool {
-    switch (snapshotAccessList.get(userId)) {
-      case (null) { false };
-      case (?access) { access };
-    };
-  };
 
   public query ({ caller }) func getSnapshots() : async [SnapshotMeta] {
     let metaArray = snapshots.values().toArray().map(func(snapshot) { { id = snapshot.id; snapshotLabel = snapshot.snapshotLabel; takenAt = snapshot.takenAt; takenByName = snapshot.takenByName } });
@@ -620,22 +614,6 @@ actor {
         snapshots.remove(snapshotId);
       };
     };
-  };
-
-  public shared ({ caller }) func grantSnapshotAccess(userId : Nat, actorUserId : Nat) : async () {
-    if (not isMasterAdmin(actorUserId)) {
-      Runtime.trap("Only master admin can grant snapshot access");
-    };
-
-    snapshotAccessList.add(userId, true);
-  };
-
-  public shared ({ caller }) func revokeSnapshotAccess(userId : Nat, actorUserId : Nat) : async () {
-    if (not isMasterAdmin(actorUserId)) {
-      Runtime.trap("Only master admin can revoke snapshot access");
-    };
-
-    snapshotAccessList.add(userId, false);
   };
 
   ///////////////////////////
@@ -887,6 +865,18 @@ actor {
         };
 
         users.remove(userId);
+
+        // Null out assignedUserId on any cards assigned to the deleted user
+        for ((cardId, card) in cards.entries()) {
+          switch (card.assignedUserId) {
+            case (?aid) {
+              if (aid == userId) {
+                cards.add(cardId, { card with assignedUserId = null });
+              };
+            };
+            case (null) {};
+          };
+        };
 
         logRevision(
           0,

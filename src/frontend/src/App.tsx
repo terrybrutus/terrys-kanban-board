@@ -178,6 +178,12 @@ function AppInner() {
     }
   }, [users, activeUser]);
 
+  // ── No-active-user banner ────────────────────────────────────────────────────
+  const [bannerDismissed, setBannerDismissed] = useState(false);
+  useEffect(() => {
+    if (!activeUser) setBannerDismissed(false);
+  }, [activeUser]);
+
   // ── Auto-snapshot helper ─────────────────────────────────────────────────────
   // Awaits the backend snapshot before allowing the destructive action to proceed.
   // This ensures the snapshot captures state BEFORE the destruction, not after.
@@ -1784,6 +1790,24 @@ function AppInner() {
           )}
         </div>
       </header>
+
+      {/* No active user banner */}
+      {!activeUser && !bannerDismissed && (
+        <div className="relative z-50 flex items-center justify-between bg-amber-50 border-b border-amber-200 px-4 py-2 text-sm text-amber-800">
+          <span>
+            ⚠️ No active user selected — go to the <strong>Users</strong> tab to
+            sign in before making changes.
+          </span>
+          <button
+            type="button"
+            onClick={() => setBannerDismissed(true)}
+            className="ml-4 text-amber-600 hover:text-amber-900 font-bold text-lg leading-none"
+            aria-label="Dismiss"
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       {/* Main content */}
       <main className="flex-1 overflow-hidden flex flex-col">

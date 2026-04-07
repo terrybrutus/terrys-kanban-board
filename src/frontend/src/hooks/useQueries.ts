@@ -82,6 +82,25 @@ export function useRenameProject() {
       if (!actor) throw new Error("No actor");
       return actor.renameProject(projectId, newName, actorUserId);
     },
+    onMutate: async (variables) => {
+      const queryKey = ["projects"];
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData(queryKey);
+      queryClient.setQueryData(
+        queryKey,
+        (old: Project[] | undefined) =>
+          old?.map((p) =>
+            p.id === variables.projectId
+              ? { ...p, name: variables.newName }
+              : p,
+          ) ?? [],
+      );
+      return { previous, queryKey };
+    },
+    onError: (_err, _vars, context: any) => {
+      if (context?.previous)
+        queryClient.setQueryData(context.queryKey, context.previous);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["projects"] });
     },
@@ -199,6 +218,27 @@ export function useCreateColumn() {
       if (!actor) throw new Error("No actor");
       return actor.createColumn(name, actorUserId, projectId);
     },
+    onMutate: async (variables) => {
+      const queryKey = ["columns", variables.projectId.toString()];
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData(queryKey);
+      queryClient.setQueryData(queryKey, (old: ColumnView[] | undefined) => {
+        const tempCol: ColumnView = {
+          id: BigInt(-Date.now()),
+          name: variables.name,
+          projectId: variables.projectId,
+          order: BigInt((old?.length ?? 0) + 1),
+          isComplete: false,
+          cardCount: 0n,
+        } as unknown as ColumnView;
+        return [...(old ?? []), tempCol];
+      });
+      return { previous, queryKey };
+    },
+    onError: (_err, _vars, context: any) => {
+      if (context?.previous)
+        queryClient.setQueryData(context.queryKey, context.previous);
+    },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({
         queryKey: ["columns", variables.projectId.toString()],
@@ -227,6 +267,26 @@ export function useRenameColumn() {
     }) => {
       if (!actor) throw new Error("No actor");
       return actor.renameColumn(columnId, newName, actorUserId);
+    },
+    onMutate: async (variables) => {
+      if (!variables.projectId) return { previous: undefined, queryKey: null };
+      const queryKey = ["columns", variables.projectId.toString()];
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData(queryKey);
+      queryClient.setQueryData(
+        queryKey,
+        (old: ColumnView[] | undefined) =>
+          old?.map((col) =>
+            col.id === variables.columnId
+              ? { ...col, name: variables.newName }
+              : col,
+          ) ?? [],
+      );
+      return { previous, queryKey };
+    },
+    onError: (_err, _vars, context: any) => {
+      if (context?.previous)
+        queryClient.setQueryData(context.queryKey, context.previous);
     },
     onSuccess: (_data, variables) => {
       if (variables.projectId) {
@@ -289,6 +349,38 @@ export function useDeleteColumn() {
     }) => {
       if (!actor) throw new Error("No actor");
       return actor.deleteColumn(columnId, actorUserId);
+    },
+    onMutate: async (variables) => {
+      if (!variables.projectId)
+        return {
+          previousCols: undefined,
+          previousCards: undefined,
+          colKey: null,
+          cardKey: null,
+        };
+      const colKey = ["columns", variables.projectId.toString()];
+      const cardKey = ["cards", variables.projectId.toString()];
+      await queryClient.cancelQueries({ queryKey: colKey });
+      await queryClient.cancelQueries({ queryKey: cardKey });
+      const previousCols = queryClient.getQueryData(colKey);
+      const previousCards = queryClient.getQueryData(cardKey);
+      queryClient.setQueryData(
+        colKey,
+        (old: ColumnView[] | undefined) =>
+          old?.filter((col) => col.id !== variables.columnId) ?? [],
+      );
+      queryClient.setQueryData(
+        cardKey,
+        (old: Card[] | undefined) =>
+          old?.filter((c) => c.columnId !== variables.columnId) ?? [],
+      );
+      return { previousCols, previousCards, colKey, cardKey };
+    },
+    onError: (_err, _vars, context: any) => {
+      if (context?.previousCols)
+        queryClient.setQueryData(context.colKey, context.previousCols);
+      if (context?.previousCards)
+        queryClient.setQueryData(context.cardKey, context.previousCards);
     },
     onSuccess: (_data, variables) => {
       if (variables.projectId) {
@@ -542,6 +634,26 @@ export function useMoveCard() {
       if (!actor) throw new Error("No actor");
       return actor.moveCard(cardId, targetColumnId, newPosition, actorUserId);
     },
+    onMutate: async (variables) => {
+      if (!variables.projectId) return { previous: undefined, queryKey: null };
+      const queryKey = ["cards", variables.projectId.toString()];
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData(queryKey);
+      queryClient.setQueryData(
+        queryKey,
+        (old: Card[] | undefined) =>
+          old?.map((c) =>
+            c.id === variables.cardId
+              ? { ...c, columnId: variables.targetColumnId }
+              : c,
+          ) ?? [],
+      );
+      return { previous, queryKey };
+    },
+    onError: (_err, _vars, context: any) => {
+      if (context?.previous)
+        queryClient.setQueryData(context.queryKey, context.previous);
+    },
     onSuccess: (_data, variables) => {
       if (variables.projectId) {
         queryClient.invalidateQueries({
@@ -580,6 +692,26 @@ export function useAssignCard() {
       if (!actor) throw new Error("No actor");
       return actor.assignCard(cardId, userId, actorUserId);
     },
+    onMutate: async (variables) => {
+      if (!variables.projectId) return { previous: undefined, queryKey: null };
+      const queryKey = ["cards", variables.projectId.toString()];
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData(queryKey);
+      queryClient.setQueryData(
+        queryKey,
+        (old: Card[] | undefined) =>
+          old?.map((c) =>
+            c.id === variables.cardId
+              ? { ...c, assigneeId: variables.userId ?? undefined }
+              : c,
+          ) ?? [],
+      );
+      return { previous, queryKey };
+    },
+    onError: (_err, _vars, context: any) => {
+      if (context?.previous)
+        queryClient.setQueryData(context.queryKey, context.previous);
+    },
     onSuccess: (_data, variables) => {
       if (variables.projectId) {
         queryClient.invalidateQueries({
@@ -610,11 +742,11 @@ export function useUsers() {
         name: u.name,
         isAdmin: u.isAdmin,
         isMasterAdmin: u.isMasterAdmin,
-        securityQuestion: u.securityQuestion,
+        securityQuestion: u.securityQuestion?.[0],
       }));
     },
     enabled: !!actor && !isFetching,
-    staleTime: 30_000,
+    staleTime: 5_000,
   });
 }
 
@@ -694,6 +826,25 @@ export function useCreateUser() {
       if (!actor) throw new Error("No actor");
       return actor.createUser(name, pinHash);
     },
+    onMutate: async (variables) => {
+      const queryKey = ["users"];
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData(queryKey);
+      queryClient.setQueryData(queryKey, (old: User[] | undefined) => {
+        const tempUser: User = {
+          id: BigInt(-Date.now()),
+          name: variables.name,
+          isAdmin: false,
+          isMasterAdmin: false,
+        };
+        return [...(old ?? []), tempUser];
+      });
+      return { previous, queryKey };
+    },
+    onError: (_err, _vars, context: any) => {
+      if (context?.previous)
+        queryClient.setQueryData(context.queryKey, context.previous);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["users"] });
     },
@@ -711,8 +862,24 @@ export function useDeleteUser() {
       if (!actor) throw new Error("No actor");
       return actor.deleteUser(userId, actorUserId);
     },
+    onMutate: async (variables) => {
+      const queryKey = ["users"];
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData(queryKey);
+      queryClient.setQueryData(
+        queryKey,
+        (old: User[] | undefined) =>
+          old?.filter((u) => u.id !== variables.userId) ?? [],
+      );
+      return { previous, queryKey };
+    },
+    onError: (_err, _vars, context: any) => {
+      if (context?.previous)
+        queryClient.setQueryData(context.queryKey, context.previous);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["users"] });
+      queryClient.invalidateQueries({ queryKey: ["cards"] });
     },
   });
 }
@@ -1563,38 +1730,6 @@ export function useDeleteSnapshot() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["snapshots"] });
-    },
-  });
-}
-
-export function useGrantSnapshotAccess() {
-  const { actor } = useActor();
-  return useMutation({
-    mutationFn: async ({
-      userId,
-      actorUserId,
-    }: {
-      userId: bigint;
-      actorUserId: bigint;
-    }): Promise<void> => {
-      if (!actor) throw new Error("No actor");
-      return actor.grantSnapshotAccess(userId, actorUserId);
-    },
-  });
-}
-
-export function useRevokeSnapshotAccess() {
-  const { actor } = useActor();
-  return useMutation({
-    mutationFn: async ({
-      userId,
-      actorUserId,
-    }: {
-      userId: bigint;
-      actorUserId: bigint;
-    }): Promise<void> => {
-      if (!actor) throw new Error("No actor");
-      return actor.revokeSnapshotAccess(userId, actorUserId);
     },
   });
 }

@@ -134,7 +134,6 @@ export interface backendInterface {
     getSnapshot(snapshotId: bigint): Promise<string | null>;
     getSnapshots(): Promise<Array<SnapshotMeta>>;
     getUsers(): Promise<Array<User>>;
-    grantSnapshotAccess(userId: bigint, actorUserId: bigint): Promise<void>;
     initBoard(): Promise<void>;
     initDefaultProject(): Promise<bigint>;
     isAdminSetup(): Promise<boolean>;
@@ -150,7 +149,6 @@ export interface backendInterface {
     resetMasterAdminPinWithSecurityAnswer(answerHash: string, newPinHash: string): Promise<boolean>;
     resetUserPin(userId: bigint, actorUserId: bigint, newPinHash: string): Promise<void>;
     restoreCard(cardId: bigint, actorUserId: bigint): Promise<void>;
-    revokeSnapshotAccess(userId: bigint, actorUserId: bigint): Promise<void>;
     saveFilterPreset(projectId: bigint, createdByUserId: bigint, name: string, assigneeId: bigint | null, tagIds: Array<bigint>, unassignedOnly: boolean, textSearch: string, dateField: string | null, dateFrom: string, dateTo: string): Promise<bigint>;
     setAccessKey(newKey: string, actorUserId: bigint): Promise<void>;
     setColumnComplete(columnId: bigint, isComplete: boolean, actorUserId: bigint): Promise<void>;

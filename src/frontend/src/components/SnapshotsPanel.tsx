@@ -9,18 +9,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
-import { Switch } from "@/components/ui/switch";
-import {
-  useDeleteSnapshot,
-  useGrantSnapshotAccess,
-  useRevokeSnapshotAccess,
-  useSnapshots,
-  useUsers,
-} from "@/hooks/useQueries";
+import { useDeleteSnapshot, useSnapshots } from "@/hooks/useQueries";
 import type { User } from "@/hooks/useQueries";
 import {
   buildSnapshotJson,
@@ -99,13 +91,10 @@ export default function SnapshotsPanel({
   } | null>(null);
 
   const { data: snapshots = [], isLoading: snapshotsLoading } = useSnapshots();
-  const { data: users = [] } = useUsers();
 
   const [isTaking, setIsTaking] = useState(false);
   const { mutateAsync: deleteSnapshot, isPending: isDeleting } =
     useDeleteSnapshot();
-  const { mutateAsync: grantAccess } = useGrantSnapshotAccess();
-  const { mutateAsync: revokeAccess } = useRevokeSnapshotAccess();
 
   const isMasterAdmin = activeUser?.isMasterAdmin === true;
   const isAdmin =
@@ -295,26 +284,6 @@ export default function SnapshotsPanel({
     }
   }
 
-  // Admin users eligible for snapshot access toggle (non-master admins)
-  const adminUsers = users.filter(
-    (u) => (u.isAdmin || u.isMasterAdmin) && !u.isMasterAdmin,
-  );
-
-  async function handleToggleAccess(user: User, currentlyGranted: boolean) {
-    if (!activeUser || !isMasterAdmin) return;
-    try {
-      if (currentlyGranted) {
-        await revokeAccess({ userId: user.id, actorUserId: activeUser.id });
-        toast.success(`Snapshot access revoked for ${user.name}`);
-      } else {
-        await grantAccess({ userId: user.id, actorUserId: activeUser.id });
-        toast.success(`Snapshot access granted to ${user.name}`);
-      }
-    } catch (e) {
-      toast.error(`Failed to update access: ${String(e)}`);
-    }
-  }
-
   return (
     <div className="space-y-6" data-ocid="snapshots.panel">
       {/* ── Header ── */}
@@ -488,7 +457,7 @@ export default function SnapshotsPanel({
                         )}
                       </Button>
 
-                      {/* Restore (master admin only) */}
+                      {/* Restore (master admin or snapshot-access admin) */}
                       {isMasterAdmin && (
                         <Button
                           size="sm"
@@ -510,7 +479,7 @@ export default function SnapshotsPanel({
                         </Button>
                       )}
 
-                      {/* Delete (master admin only) */}
+                      {/* Delete (master admin or snapshot-access admin) */}
                       {isMasterAdmin && (
                         <Button
                           size="sm"
@@ -534,56 +503,6 @@ export default function SnapshotsPanel({
               })}
           </div>
         </ScrollArea>
-      )}
-
-      {/* ── Snapshot Access Management (master admin only) ── */}
-      {isMasterAdmin && adminUsers.length > 0 && (
-        <>
-          <Separator />
-          <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <Shield className="h-3.5 w-3.5 text-muted-foreground" />
-              <p className="text-xs font-medium text-foreground">
-                Snapshot Access
-              </p>
-              <span className="text-xs text-muted-foreground">
-                — grant admins the ability to take snapshots
-              </span>
-            </div>
-            <div className="space-y-2">
-              {adminUsers.map((u, idx) => (
-                <div
-                  key={u.id.toString()}
-                  className="flex items-center justify-between rounded-lg border border-border bg-card px-4 py-2.5"
-                  data-ocid={`snapshots.access.row.${idx + 1}`}
-                >
-                  <div className="flex items-center gap-2">
-                    <div className="h-6 w-6 rounded-full bg-secondary flex items-center justify-center text-[10px] font-bold shrink-0">
-                      {u.name.slice(0, 1).toUpperCase()}
-                    </div>
-                    <span className="text-sm text-foreground">{u.name}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Label
-                      htmlFor={`snapshot-access-${u.id}`}
-                      className="text-xs text-muted-foreground"
-                    >
-                      Can take snapshots
-                    </Label>
-                    <Switch
-                      id={`snapshot-access-${u.id}`}
-                      checked={false}
-                      onCheckedChange={(checked) =>
-                        handleToggleAccess(u, !checked)
-                      }
-                      data-ocid={`snapshots.access.switch.${idx + 1}`}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </>
       )}
 
       {/* ── Restore Confirmation Dialog ── */}

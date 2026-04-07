@@ -224,8 +224,8 @@ export default function ProjectSwitcher({
                       </span>
                     </button>
 
-                    {/* Action buttons — visible on hover, only when active user set */}
-                    {activeUser && (
+                    {/* Action buttons — visible on hover, only for admins */}
+                    {(activeUser?.isAdmin || activeUser?.isMasterAdmin) && (
                       <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
                         <button
                           type="button"
@@ -261,7 +261,7 @@ export default function ProjectSwitcher({
           </div>
 
           {/* Separator + New project */}
-          {activeUser && (
+          {(activeUser?.isAdmin || activeUser?.isMasterAdmin) && (
             <>
               <div className="h-px bg-border my-1" />
               {showNewInput ? (
