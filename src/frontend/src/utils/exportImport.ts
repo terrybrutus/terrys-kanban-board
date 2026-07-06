@@ -590,12 +590,24 @@ export async function exportProjectToString(
       timestamp: bigintNsToIso(r.timestamp),
     }));
 
-  const exportedUsers: ExportedUser[] = users.map((u) => ({
-    id: u.id.toString(),
-    name: u.name,
-    isAdmin: u.isAdmin,
-    isMasterAdmin: u.isMasterAdmin,
-  }));
+  const exportedUsers: ExportedUser[] = (() => {
+    // Only export users who are actually assigned to at least one card in this
+    // project — never dump the full global user list into a project export.
+    const assignedUserIds = new Set<string>();
+    for (const card of cards) {
+      if (card.assignedUserId != null) {
+        assignedUserIds.add(card.assignedUserId.toString());
+      }
+    }
+    return users
+      .filter((u) => assignedUserIds.has(u.id.toString()))
+      .map((u) => ({
+        id: u.id.toString(),
+        name: u.name,
+        isAdmin: u.isAdmin,
+        isMasterAdmin: u.isMasterAdmin,
+      }));
+  })();
 
   const exportedTags: ExportedTag[] = tags.map((t) => ({
     id: t.id.toString(),
@@ -691,6 +703,8 @@ export async function importProject(
   activeUserId: bigint,
   importMode: "replace" | "merge",
   onProgress?: (pct: number) => void,
+  /** When true, uses silent backend methods that skip per-entity activity logging */
+  silent?: boolean,
 ): Promise<ImportResult> {
   const result: ImportResult = {
     success: false,
@@ -808,6 +822,7 @@ export async function importProject(
             (cu) => cu.name.toLowerCase() === (u.name ?? "").toLowerCase(),
           );
           if (existing) {
+            // Never overwrite existing user role or PIN from import — skip if user already exists.
             result.warnings.push(
               `User "${u.name}" already exists — skipped, using existing ID.`,
             );
@@ -883,12 +898,19 @@ export async function importProject(
               );
               tagIdMap.set(String(t.id), existing.id);
             } else {
-              const newId = await actor.createTag(
-                projectId,
-                t.name ?? "Unnamed Tag",
-                t.color ?? "#94a3b8",
-                activeUserId,
-              );
+              const newId = silent
+                ? await actor.importTagSilent(
+                    projectId,
+                    t.name ?? "Unnamed Tag",
+                    t.color ?? "#94a3b8",
+                    activeUserId,
+                  )
+                : await actor.createTag(
+                    projectId,
+                    t.name ?? "Unnamed Tag",
+                    t.color ?? "#94a3b8",
+                    activeUserId,
+                  );
               tagIdMap.set(String(t.id), newId);
               result.counts.tagsImported++;
             }
@@ -928,11 +950,17 @@ export async function importProject(
             continue;
           }
         }
-        const newId = await actor.createColumn(
-          col.name ?? "Unnamed Column",
-          activeUserId,
-          projectId,
-        );
+        const newId = silent
+          ? await actor.importColumnSilent(
+              projectId,
+              col.name ?? "Unnamed Column",
+              activeUserId,
+            )
+          : await actor.createColumn(
+              col.name ?? "Unnamed Column",
+              activeUserId,
+              projectId,
+            );
         columnIdMap.set(String(col.id), newId);
         result.counts.columnsImported++;
         if (importedColumns.length > 0) {
@@ -975,13 +1003,21 @@ export async function importProject(
         }
 
         try {
-          const newCardId = await actor.createCard(
-            card.title ?? "Untitled Card",
-            card.description ?? null,
-            targetColumnId,
-            activeUserId,
-            projectId,
-          );
+          const newCardId = silent
+            ? await actor.importCardSilent(
+                card.title ?? "Untitled Card",
+                card.description ?? null,
+                targetColumnId,
+                activeUserId,
+                projectId,
+              )
+            : await actor.createCard(
+                card.title ?? "Untitled Card",
+                card.description ?? null,
+                targetColumnId,
+                activeUserId,
+                projectId,
+              );
           cardIdMap.set(String(card.id), newCardId);
           result.counts.cardsImported++;
           importedCardCount++;
@@ -1222,7 +1258,8 @@ export async function restoreFromSnapshotJson(
   onProgress?.(5);
 
   // Route through the proven importProject pipeline with replace mode.
-  // This is the same path that Import/Export uses and is known to work correctly.
+  // silent=true suppresses per-entity activity logging; a single restore
+  // summary entry is written by the caller after this function returns.
   const importResult = await importProject(
     actor,
     raw,
@@ -1230,6 +1267,7 @@ export async function restoreFromSnapshotJson(
     activeUserId,
     "replace",
     onProgress,
+    true, // silent — skip per-card/column/tag activity log entries
   );
   // importProject already calls onProgress(100) at the end
 

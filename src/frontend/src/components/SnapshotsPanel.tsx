@@ -12,6 +12,12 @@ import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useDeleteSnapshot, useSnapshots } from "@/hooks/useQueries";
 import type { User } from "@/hooks/useQueries";
 import {
@@ -216,7 +222,20 @@ export default function SnapshotsPanel({
 
       setRestoreProgress(95);
 
-      // Step 4: Force-refetch ALL queries (including inactive Board tab queries)
+      // Step 4: Log a single restore event (suppresses per-card noise)
+      try {
+        await actor.logRestoreEvent(
+          targetProjectId,
+          activeUser.id,
+          capturedLabel,
+          BigInt(result.counts.columnsRestored),
+          BigInt(result.counts.cardsRestored),
+        );
+      } catch {
+        // Non-fatal — don't block the restore completion if logging fails
+      }
+
+      // Step 5: Force-refetch ALL queries (including inactive Board tab queries)
       await queryClient.refetchQueries({ type: "all" });
 
       setRestoreProgress(100);
@@ -594,17 +613,28 @@ export default function SnapshotsPanel({
           )}
 
           <DialogFooter className="gap-2">
-            <Button
-              variant="ghost"
-              onClick={() => {
-                setRestoreTarget(null);
-                setRestoreDone(null);
-              }}
-              disabled={isRestoring}
-              data-ocid="snapshots.cancel_button"
-            >
-              {restoreDone ? "Close" : "Cancel"}
-            </Button>
+            <TooltipProvider>
+              <Tooltip open={isRestoring ? undefined : false}>
+                <TooltipTrigger asChild>
+                  <span tabIndex={isRestoring ? 0 : -1}>
+                    <Button
+                      variant="ghost"
+                      onClick={() => {
+                        setRestoreTarget(null);
+                        setRestoreDone(null);
+                      }}
+                      disabled={isRestoring}
+                      data-ocid="snapshots.cancel_button"
+                    >
+                      {restoreDone ? "Close" : "Cancel"}
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="top">
+                  <p>Restore in progress…</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
             {!restoreDone && (
               <Button
                 onClick={handleConfirmRestore}

@@ -12,7 +12,7 @@ import Iter "mo:core/Iter";
 
 
 
-(with migration = func (old : { var snapshotAccessList : Map.Map<Nat, Bool> }) : {} { {} })
+(with migration = func (old : {}) : {} { {} })
 actor {
   ///////////////////////////
   // Types
@@ -1891,6 +1891,104 @@ actor {
       actorUserId,
       "set_access_key",
       "Access key changed by master admin",
+      null,
+    );
+  };
+
+  ///////////////////////////
+  // Silent Import Functions (used during restore to suppress per-item log entries)
+  ///////////////////////////
+
+  // Creates a column without logging a revision — used during snapshot restore.
+  public shared ({ caller }) func importColumnSilent(
+    projectId : Nat,
+    name : Text,
+    actorUserId : Nat,
+  ) : async Nat {
+    let columnId = nextColumnId;
+    let column : Column = {
+      id = columnId;
+      name;
+      projectId;
+      cardIds = List.empty<Nat>();
+      isComplete = false;
+    };
+    columns.add(columnId, column);
+    nextColumnId += 1;
+    columnId;
+  };
+
+  // Creates a card without logging a revision — used during snapshot restore.
+  public shared ({ caller }) func importCardSilent(
+    title : Text,
+    description : ?Text,
+    columnId : Nat,
+    actorUserId : Nat,
+    projectId : Nat,
+  ) : async Nat {
+    switch (columns.get(columnId)) {
+      case (null) { Runtime.trap("Column not found") };
+      case (?column) {
+        let cardId = nextCardId;
+        let card : Card = {
+          id = cardId;
+          title;
+          description;
+          columnId;
+          projectId;
+          assignedUserId = null;
+          tags = [];
+          dueDate = null;
+          createdAt = Time.now();
+          swimlaneId = null;
+          isArchived = false;
+          archivedAt = null;
+        };
+
+        let updatedCards = column.cardIds.clone();
+        updatedCards.add(cardId);
+
+        cards.add(cardId, card);
+        columns.add(columnId, { column with cardIds = updatedCards });
+        nextCardId += 1;
+        cardId;
+      };
+    };
+  };
+
+  // Creates a tag without logging a revision — used during snapshot restore.
+  public shared ({ caller }) func importTagSilent(
+    projectId : Nat,
+    name : Text,
+    color : Text,
+    actorUserId : Nat,
+  ) : async Nat {
+    let tagId = nextTagId;
+    let tag : Tag = {
+      id = tagId;
+      projectId;
+      name;
+      color;
+    };
+    tags.add(tagId, tag);
+    nextTagId += 1;
+    tagId;
+  };
+
+  // Logs a single summary entry for a board restore — replaces per-card/column/tag log entries.
+  public shared ({ caller }) func logRestoreEvent(
+    projectId : Nat,
+    actorUserId : Nat,
+    snapshotLabel : Text,
+    columnsCount : Nat,
+    cardsCount : Nat,
+  ) : async () {
+    let actorName = getUserName(actorUserId);
+    logRevision(
+      projectId,
+      actorUserId,
+      "restore_board",
+      actorName # " restored board to snapshot '" # snapshotLabel # "' — " # columnsCount.toText() # " columns, " # cardsCount.toText() # " cards recovered",
       null,
     );
   };

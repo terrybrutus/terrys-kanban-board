@@ -41,9 +41,11 @@ import {
   Database,
   Eye,
   EyeOff,
+  FileJson,
   Kanban,
   LayoutDashboard,
   Loader2,
+  MoreHorizontal,
   Plus,
   Shield,
   Tag,
@@ -1507,6 +1509,31 @@ function AppInner() {
           />
         </div>
 
+        {/* Board-level kebab — Import/Export, admin only */}
+        {activeProjectId && isAdminUser && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="flex items-center justify-center h-7 w-7 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors"
+                title="Board options"
+                data-ocid="board.kebab.trigger"
+              >
+                <MoreHorizontal className="h-4 w-4" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-44">
+              <DropdownMenuItem
+                onClick={() => setShowProjectSettings(true)}
+                data-ocid="board.kebab.import_export"
+              >
+                <FileJson className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
+                Import / Export
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+
         {/* Separator */}
         <div className="h-5 w-px bg-border shrink-0" />
 
@@ -1560,8 +1587,8 @@ function AppInner() {
             <BarChart2 className="h-3.5 w-3.5" />
             Dashboard
           </button>
-          {/* Snapshots tab — only visible to admins */}
-          {isAdminUser && (
+          {/* Snapshots tab — only visible to master admin */}
+          {activeUser?.isMasterAdmin === true && (
             <button
               type="button"
               onClick={() => setActiveTab("snapshots")}
@@ -1684,19 +1711,6 @@ function AppInner() {
                 )}
               </div>
             )}
-
-          {/* Import/Export — shown when a project is active */}
-          {activeProjectId && (
-            <button
-              type="button"
-              onClick={() => setShowProjectSettings(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors"
-              title="Export or import project data"
-              data-ocid="board.import_export.button"
-            >
-              Import/Export
-            </button>
-          )}
 
           {/* Quick user switcher */}
           <DropdownMenu>

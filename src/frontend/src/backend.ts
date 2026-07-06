@@ -126,6 +126,7 @@ export interface Card {
     isArchived: boolean;
     projectId: bigint;
     assignedUserId?: bigint;
+    swimlaneId?: bigint;
     columnId: bigint;
     archivedAt?: bigint;
 }
@@ -149,15 +150,7 @@ export interface ChecklistItem {
 export interface Project {
     id: bigint;
     name: string;
-}
-export interface Revision {
-    id: bigint;
-    actorName: string;
-    description: string;
-    projectId: bigint;
-    timestamp: bigint;
-    cardId?: bigint;
-    revisionType: string;
+    swimlanesEnabled: boolean;
 }
 export interface FilterPreset {
     id: bigint;
@@ -171,6 +164,15 @@ export interface FilterPreset {
     unassignedOnly: boolean;
     dateFrom: string;
     dateField?: string;
+}
+export interface Revision {
+    id: bigint;
+    actorName: string;
+    description: string;
+    projectId: bigint;
+    timestamp: bigint;
+    cardId?: bigint;
+    revisionType: string;
 }
 export interface ProjectSummary {
     unassignedCount: bigint;
@@ -216,10 +218,13 @@ export interface backendInterface {
     getSnapshot(snapshotId: bigint): Promise<string | null>;
     getSnapshots(): Promise<Array<SnapshotMeta>>;
     getUsers(): Promise<Array<User>>;
-    grantSnapshotAccess(userId: bigint, actorUserId: bigint): Promise<void>;
+    importCardSilent(title: string, description: string | null, columnId: bigint, actorUserId: bigint, projectId: bigint): Promise<bigint>;
+    importColumnSilent(projectId: bigint, name: string, actorUserId: bigint): Promise<bigint>;
+    importTagSilent(projectId: bigint, name: string, color: string, actorUserId: bigint): Promise<bigint>;
     initBoard(): Promise<void>;
     initDefaultProject(): Promise<bigint>;
     isAdminSetup(): Promise<boolean>;
+    logRestoreEvent(projectId: bigint, actorUserId: bigint, snapshotLabel: string, columnsCount: bigint, cardsCount: bigint): Promise<void>;
     moveCard(cardId: bigint, targetColumnId: bigint, newPosition: bigint, actorUserId: bigint): Promise<void>;
     moveCards(cardIds: Array<bigint>, targetColumnId: bigint, actorUserId: bigint): Promise<void>;
     promoteUser(userId: bigint, actorUserId: bigint): Promise<void>;
@@ -232,15 +237,13 @@ export interface backendInterface {
     resetMasterAdminPinWithSecurityAnswer(answerHash: string, newPinHash: string): Promise<boolean>;
     resetUserPin(userId: bigint, actorUserId: bigint, newPinHash: string): Promise<void>;
     restoreCard(cardId: bigint, actorUserId: bigint): Promise<void>;
-    revokeSnapshotAccess(userId: bigint, actorUserId: bigint): Promise<void>;
-    getUserSnapshotAccess(userId: bigint): Promise<boolean>;
     saveFilterPreset(projectId: bigint, createdByUserId: bigint, name: string, assigneeId: bigint | null, tagIds: Array<bigint>, unassignedOnly: boolean, textSearch: string, dateField: string | null, dateFrom: string, dateTo: string): Promise<bigint>;
     setAccessKey(newKey: string, actorUserId: bigint): Promise<void>;
     setColumnComplete(columnId: bigint, isComplete: boolean, actorUserId: bigint): Promise<void>;
     setMasterAdminSecurityQuestion(question: string, answerHash: string, actorUserId: bigint): Promise<void>;
     setupMasterAdmin(name: string, pinHash: string): Promise<bigint>;
-    takeSnapshot(snapshotLabel: string, actorUserId: bigint): Promise<bigint>;
     storeSnapshot(snapshotLabel: string, data: string, actorUserId: bigint): Promise<bigint>;
+    takeSnapshot(snapshotLabel: string, actorUserId: bigint): Promise<bigint>;
     updateCard(cardId: bigint, title: string, description: string | null, actorUserId: bigint): Promise<void>;
     updateCardDueDate(cardId: bigint, dueDate: bigint | null, actorUserId: bigint): Promise<void>;
     updateCardTags(cardId: bigint, tagIds: Array<bigint>, actorUserId: bigint): Promise<void>;
@@ -754,17 +757,45 @@ export class Backend implements backendInterface {
             return from_candid_vec_n15(this._uploadFile, this._downloadFile, result);
         }
     }
-    async grantSnapshotAccess(arg0: bigint, arg1: bigint): Promise<void> {
+    async importCardSilent(arg0: string, arg1: string | null, arg2: bigint, arg3: bigint, arg4: bigint): Promise<bigint> {
         if (this.processError) {
             try {
-                const result = await this.actor.grantSnapshotAccess(arg0, arg1);
+                const result = await this.actor.importCardSilent(arg0, to_candid_opt_n2(this._uploadFile, this._downloadFile, arg1), arg2, arg3, arg4);
                 return result;
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.grantSnapshotAccess(arg0, arg1);
+            const result = await this.actor.importCardSilent(arg0, to_candid_opt_n2(this._uploadFile, this._downloadFile, arg1), arg2, arg3, arg4);
+            return result;
+        }
+    }
+    async importColumnSilent(arg0: bigint, arg1: string, arg2: bigint): Promise<bigint> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.importColumnSilent(arg0, arg1, arg2);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.importColumnSilent(arg0, arg1, arg2);
+            return result;
+        }
+    }
+    async importTagSilent(arg0: bigint, arg1: string, arg2: string, arg3: bigint): Promise<bigint> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.importTagSilent(arg0, arg1, arg2, arg3);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.importTagSilent(arg0, arg1, arg2, arg3);
             return result;
         }
     }
@@ -807,6 +838,20 @@ export class Backend implements backendInterface {
             }
         } else {
             const result = await this.actor.isAdminSetup();
+            return result;
+        }
+    }
+    async logRestoreEvent(arg0: bigint, arg1: bigint, arg2: string, arg3: bigint, arg4: bigint): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.logRestoreEvent(arg0, arg1, arg2, arg3, arg4);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.logRestoreEvent(arg0, arg1, arg2, arg3, arg4);
             return result;
         }
     }
@@ -978,34 +1023,6 @@ export class Backend implements backendInterface {
             return result;
         }
     }
-    async revokeSnapshotAccess(arg0: bigint, arg1: bigint): Promise<void> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.revokeSnapshotAccess(arg0, arg1);
-                return result;
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.revokeSnapshotAccess(arg0, arg1);
-            return result;
-        }
-    }
-    async getUserSnapshotAccess(arg0: bigint): Promise<boolean> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.getUserSnapshotAccess(arg0);
-                return result;
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.getUserSnapshotAccess(arg0);
-            return result;
-        }
-    }
     async saveFilterPreset(arg0: bigint, arg1: bigint, arg2: string, arg3: bigint | null, arg4: Array<bigint>, arg5: boolean, arg6: string, arg7: string | null, arg8: string, arg9: string): Promise<bigint> {
         if (this.processError) {
             try {
@@ -1076,20 +1093,6 @@ export class Backend implements backendInterface {
             return result;
         }
     }
-    async takeSnapshot(arg0: string, arg1: bigint): Promise<bigint> {
-        if (this.processError) {
-            try {
-                const result = await this.actor.takeSnapshot(arg0, arg1);
-                return result;
-            } catch (e) {
-                this.processError(e);
-                throw new Error("unreachable");
-            }
-        } else {
-            const result = await this.actor.takeSnapshot(arg0, arg1);
-            return result;
-        }
-    }
     async storeSnapshot(arg0: string, arg1: string, arg2: bigint): Promise<bigint> {
         if (this.processError) {
             try {
@@ -1101,6 +1104,20 @@ export class Backend implements backendInterface {
             }
         } else {
             const result = await this.actor.storeSnapshot(arg0, arg1, arg2);
+            return result;
+        }
+    }
+    async takeSnapshot(arg0: string, arg1: bigint): Promise<bigint> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.takeSnapshot(arg0, arg1);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.takeSnapshot(arg0, arg1);
             return result;
         }
     }
@@ -1299,6 +1316,7 @@ function from_candid_record_n5(_uploadFile: (file: ExternalBlob) => Promise<Uint
     isArchived: boolean;
     projectId: bigint;
     assignedUserId: [] | [bigint];
+    swimlaneId: [] | [bigint];
     columnId: bigint;
     archivedAt: [] | [bigint];
 }): {
@@ -1311,6 +1329,7 @@ function from_candid_record_n5(_uploadFile: (file: ExternalBlob) => Promise<Uint
     isArchived: boolean;
     projectId: bigint;
     assignedUserId?: bigint;
+    swimlaneId?: bigint;
     columnId: bigint;
     archivedAt?: bigint;
 } {
@@ -1324,6 +1343,7 @@ function from_candid_record_n5(_uploadFile: (file: ExternalBlob) => Promise<Uint
         isArchived: value.isArchived,
         projectId: value.projectId,
         assignedUserId: record_opt_to_undefined(from_candid_opt_n8(_uploadFile, _downloadFile, value.assignedUserId)),
+        swimlaneId: record_opt_to_undefined(from_candid_opt_n8(_uploadFile, _downloadFile, value.swimlaneId)),
         columnId: value.columnId,
         archivedAt: record_opt_to_undefined(from_candid_opt_n6(_uploadFile, _downloadFile, value.archivedAt))
     };

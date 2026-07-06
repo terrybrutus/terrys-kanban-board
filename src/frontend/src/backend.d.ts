@@ -44,6 +44,7 @@ export interface Card {
     isArchived: boolean;
     projectId: bigint;
     assignedUserId?: bigint;
+    swimlaneId?: bigint;
     columnId: bigint;
     archivedAt?: bigint;
 }
@@ -67,15 +68,7 @@ export interface ChecklistItem {
 export interface Project {
     id: bigint;
     name: string;
-}
-export interface Revision {
-    id: bigint;
-    actorName: string;
-    description: string;
-    projectId: bigint;
-    timestamp: bigint;
-    cardId?: bigint;
-    revisionType: string;
+    swimlanesEnabled: boolean;
 }
 export interface FilterPreset {
     id: bigint;
@@ -89,6 +82,15 @@ export interface FilterPreset {
     unassignedOnly: boolean;
     dateFrom: string;
     dateField?: string;
+}
+export interface Revision {
+    id: bigint;
+    actorName: string;
+    description: string;
+    projectId: bigint;
+    timestamp: bigint;
+    cardId?: bigint;
+    revisionType: string;
 }
 export interface ProjectSummary {
     unassignedCount: bigint;
@@ -134,9 +136,13 @@ export interface backendInterface {
     getSnapshot(snapshotId: bigint): Promise<string | null>;
     getSnapshots(): Promise<Array<SnapshotMeta>>;
     getUsers(): Promise<Array<User>>;
+    importCardSilent(title: string, description: string | null, columnId: bigint, actorUserId: bigint, projectId: bigint): Promise<bigint>;
+    importColumnSilent(projectId: bigint, name: string, actorUserId: bigint): Promise<bigint>;
+    importTagSilent(projectId: bigint, name: string, color: string, actorUserId: bigint): Promise<bigint>;
     initBoard(): Promise<void>;
     initDefaultProject(): Promise<bigint>;
     isAdminSetup(): Promise<boolean>;
+    logRestoreEvent(projectId: bigint, actorUserId: bigint, snapshotLabel: string, columnsCount: bigint, cardsCount: bigint): Promise<void>;
     moveCard(cardId: bigint, targetColumnId: bigint, newPosition: bigint, actorUserId: bigint): Promise<void>;
     moveCards(cardIds: Array<bigint>, targetColumnId: bigint, actorUserId: bigint): Promise<void>;
     promoteUser(userId: bigint, actorUserId: bigint): Promise<void>;
@@ -154,8 +160,8 @@ export interface backendInterface {
     setColumnComplete(columnId: bigint, isComplete: boolean, actorUserId: bigint): Promise<void>;
     setMasterAdminSecurityQuestion(question: string, answerHash: string, actorUserId: bigint): Promise<void>;
     setupMasterAdmin(name: string, pinHash: string): Promise<bigint>;
-    takeSnapshot(snapshotLabel: string, actorUserId: bigint): Promise<bigint>;
     storeSnapshot(snapshotLabel: string, data: string, actorUserId: bigint): Promise<bigint>;
+    takeSnapshot(snapshotLabel: string, actorUserId: bigint): Promise<bigint>;
     updateCard(cardId: bigint, title: string, description: string | null, actorUserId: bigint): Promise<void>;
     updateCardDueDate(cardId: bigint, dueDate: bigint | null, actorUserId: bigint): Promise<void>;
     updateCardTags(cardId: bigint, tagIds: Array<bigint>, actorUserId: bigint): Promise<void>;

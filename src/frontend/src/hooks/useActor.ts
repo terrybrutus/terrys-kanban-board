@@ -1,54 +1,13 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect } from "react";
-import type { backendInterface } from "../backend";
-import { createActorWithConfig } from "../config";
-import { useInternetIdentity } from "./useInternetIdentity";
+import { useActor as useCaffeineActor } from "@caffeineai/core-infrastructure";
+import { createActor } from "../backend";
+import type { backendInterface } from "../backend.d";
 
-const ACTOR_QUERY_KEY = "actor";
-export function useActor() {
-  const { identity } = useInternetIdentity();
-  const queryClient = useQueryClient();
-  const actorQuery = useQuery<backendInterface>({
-    queryKey: [ACTOR_QUERY_KEY, identity?.getPrincipal().toString()],
-    queryFn: async () => {
-      const isAuthenticated = !!identity;
-
-      if (!isAuthenticated) {
-        // Return anonymous actor if not authenticated
-        return await createActorWithConfig();
-      }
-
-      const actorOptions = {
-        agentOptions: {
-          identity,
-        },
-      };
-
-      const actor = await createActorWithConfig(actorOptions);
-      return actor;
-    },
-    // Only refetch when identity changes
-    staleTime: Number.POSITIVE_INFINITY,
-    // This will cause the actor to be recreated when the identity changes
-    enabled: true,
-  });
-
-  // When the actor changes, invalidate dependent queries so they re-fetch
-  // on their own schedule (driven by their `enabled` guards).
-  // Do NOT call refetchQueries here -- that fires every registered query
-  // simultaneously on load, causing a 15+ canister-call storm.
-  useEffect(() => {
-    if (actorQuery.data) {
-      queryClient.invalidateQueries({
-        predicate: (query) => {
-          return !query.queryKey.includes(ACTOR_QUERY_KEY);
-        },
-      });
-    }
-  }, [actorQuery.data, queryClient]);
-
-  return {
-    actor: actorQuery.data || null,
-    isFetching: actorQuery.isFetching,
+export function useActor(): {
+  actor: backendInterface | null;
+  isFetching: boolean;
+} {
+  return useCaffeineActor(createActor) as {
+    actor: backendInterface | null;
+    isFetching: boolean;
   };
 }

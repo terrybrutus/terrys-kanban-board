@@ -1,0 +1,33 @@
+[package]
+name = "backend"
+version = "0.1.0"
+
+[build]
+outputDir = "src/backend/dist"
+args = ["--release"]
+
+[canisters.backend]
+main = "src/backend/main.mo"
+
+[canisters.backend.check-stable]
+path = ".old/src/backend/dist/backend.most"
+
+[toolchain]
+moc = "1.3.0"
+lintoko = "0.7.0"
+
+[lint]
+extends = true
+
+[moc]
+args = [
+  "--default-persistent-actors",
+  "--actor-idl=src/backend/system-idl",
+  "--implicit-package=core",
+  "-no-check-ir",
+  "-E=M0236,M0235,M0223,M0237",
+  "-A=M0198",
+]
+
+[dependencies]
+core = "2.2.0"

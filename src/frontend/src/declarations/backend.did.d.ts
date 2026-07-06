@@ -87,12 +87,6 @@ export interface SnapshotMeta {
   'takenAt' : bigint,
   'snapshotLabel' : string,
 }
-export interface Swimlane {
-  'id' : bigint,
-  'order' : bigint,
-  'name' : string,
-  'projectId' : bigint,
-}
 export interface Tag {
   'id' : bigint,
   'name' : string,
@@ -121,7 +115,6 @@ export interface _SERVICE {
   >,
   'createColumn' : ActorMethod<[string, bigint, bigint], bigint>,
   'createProject' : ActorMethod<[string, bigint], bigint>,
-  'createSwimlane' : ActorMethod<[bigint, string, bigint], bigint>,
   'createTag' : ActorMethod<[bigint, string, string, bigint], bigint>,
   'createUser' : ActorMethod<[string, string], bigint>,
   'deleteCard' : ActorMethod<[bigint, bigint], undefined>,
@@ -131,12 +124,9 @@ export interface _SERVICE {
   'deleteFilterPreset' : ActorMethod<[bigint, bigint], undefined>,
   'deleteProject' : ActorMethod<[bigint, bigint], undefined>,
   'deleteSnapshot' : ActorMethod<[bigint, bigint], undefined>,
-  'deleteSwimlane' : ActorMethod<[bigint, bigint], undefined>,
   'deleteTag' : ActorMethod<[bigint, bigint], undefined>,
   'deleteUser' : ActorMethod<[bigint, bigint], undefined>,
   'demoteUser' : ActorMethod<[bigint, bigint], undefined>,
-  'disableSwimlanes' : ActorMethod<[bigint, bigint], undefined>,
-  'enableSwimlanes' : ActorMethod<[bigint, bigint], undefined>,
   'getAccessKey' : ActorMethod<[], string>,
   'getArchivedCards' : ActorMethod<[bigint], Array<Card>>,
   'getCardComments' : ActorMethod<[bigint], Array<Comment>>,
@@ -151,18 +141,25 @@ export interface _SERVICE {
   'getRevisions' : ActorMethod<[bigint], Array<Revision>>,
   'getSnapshot' : ActorMethod<[bigint], [] | [string]>,
   'getSnapshots' : ActorMethod<[], Array<SnapshotMeta>>,
-  'getSwimlanes' : ActorMethod<[bigint], Array<Swimlane>>,
   'getUsers' : ActorMethod<[], Array<User>>,
-  'grantSnapshotAccess' : ActorMethod<[bigint, bigint], undefined>,
+  'importCardSilent' : ActorMethod<
+    [string, [] | [string], bigint, bigint, bigint],
+    bigint
+  >,
+  'importColumnSilent' : ActorMethod<[bigint, string, bigint], bigint>,
+  'importTagSilent' : ActorMethod<[bigint, string, string, bigint], bigint>,
   'initBoard' : ActorMethod<[], undefined>,
   'initDefaultProject' : ActorMethod<[], bigint>,
   'isAdminSetup' : ActorMethod<[], boolean>,
+  'logRestoreEvent' : ActorMethod<
+    [bigint, bigint, string, bigint, bigint],
+    undefined
+  >,
   'moveCard' : ActorMethod<[bigint, bigint, bigint, bigint], undefined>,
   'moveCards' : ActorMethod<[Array<bigint>, bigint, bigint], undefined>,
   'promoteUser' : ActorMethod<[bigint, bigint], undefined>,
   'renameColumn' : ActorMethod<[bigint, string, bigint], undefined>,
   'renameProject' : ActorMethod<[bigint, string, bigint], undefined>,
-  'renameSwimlane' : ActorMethod<[bigint, string, bigint], undefined>,
   'renameTag' : ActorMethod<[bigint, string, bigint], undefined>,
   'renameUser' : ActorMethod<[bigint, string, bigint], undefined>,
   'reorderChecklistItems' : ActorMethod<
@@ -170,14 +167,12 @@ export interface _SERVICE {
     undefined
   >,
   'reorderColumns' : ActorMethod<[Array<bigint>, bigint], undefined>,
-  'reorderSwimlanes' : ActorMethod<[Array<bigint>, bigint], undefined>,
   'resetMasterAdminPinWithSecurityAnswer' : ActorMethod<
     [string, string],
     boolean
   >,
   'resetUserPin' : ActorMethod<[bigint, bigint, string], undefined>,
   'restoreCard' : ActorMethod<[bigint, bigint], undefined>,
-  'revokeSnapshotAccess' : ActorMethod<[bigint, bigint], undefined>,
   'saveFilterPreset' : ActorMethod<
     [
       bigint,
@@ -200,17 +195,13 @@ export interface _SERVICE {
     undefined
   >,
   'setupMasterAdmin' : ActorMethod<[string, string], bigint>,
-  'takeSnapshot' : ActorMethod<[string, bigint], bigint>,
   'storeSnapshot' : ActorMethod<[string, string, bigint], bigint>,
+  'takeSnapshot' : ActorMethod<[string, bigint], bigint>,
   'updateCard' : ActorMethod<
     [bigint, string, [] | [string], bigint],
     undefined
   >,
   'updateCardDueDate' : ActorMethod<[bigint, [] | [bigint], bigint], undefined>,
-  'updateCardSwimlane' : ActorMethod<
-    [bigint, [] | [bigint], bigint],
-    undefined
-  >,
   'updateCardTags' : ActorMethod<[bigint, Array<bigint>, bigint], undefined>,
   'updateChecklistItem' : ActorMethod<
     [bigint, string, boolean, bigint],

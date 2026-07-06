@@ -1,0 +1,241 @@
+// Version: 3.0.0
+type Card__434522645 =
+  {
+    archivedAt : ?Int;
+    assignedUserId : ?Nat;
+    columnId : Nat;
+    createdAt : Int;
+    description : ?Text;
+    dueDate : ?Int;
+    id : Nat;
+    isArchived : Bool;
+    projectId : Nat;
+    swimlaneId : ?Nat;
+    tags : [Nat];
+    title : Text
+  };
+type ChecklistItem__867883729 =
+  {
+    cardId : Nat;
+    createdAt : Int;
+    id : Nat;
+    isDone : Bool;
+    order : Nat;
+    text : Text
+  };
+type Column__53281443 =
+  {
+    cardIds : List__415060402<Nat>;
+    id : Nat;
+    isComplete : Bool;
+    name : Text;
+    projectId : Nat
+  };
+type Comment__473346131 =
+  {
+    authorId : Nat;
+    authorName : Text;
+    cardId : Nat;
+    id : Nat;
+    text : Text;
+    timestamp : Int
+  };
+type Data__791452850<K, V> =
+  {var count : Nat__490723111; kvs : [var ?(K, V)]};
+type FilterPreset__252447771 =
+  {
+    assigneeId : ?Nat;
+    createdByUserId : Nat;
+    dateField : ?Text;
+    dateFrom : Text;
+    dateTo : Text;
+    id : Nat;
+    name : Text;
+    projectId : Nat;
+    tagIds : [Nat];
+    textSearch : Text;
+    unassignedOnly : Bool
+  };
+type Internal__8484328<K, V> =
+  {children : [var ?Node__46230540<K, V>]; data : Data__791452850<K, V>};
+type Leaf__809889148<K, V> = {data : Data__791452850<K, V>};
+type List__415060402<T> = List__790383201<T>;
+type List__790383201<T> =
+  {
+    var blockIndex : Nat__490723111;
+    var blocks : [var [var ?T]];
+    var elementIndex : Nat__490723111
+  };
+type Nat__490723111 = Nat__920180692;
+type Nat__920180692 = Nat;
+type Node__46230540<K, V> =
+  {#internal : Internal__8484328<K, V>; #leaf : Leaf__809889148<K, V>};
+type Project__762223144 = {id : Nat; name : Text; swimlanesEnabled : Bool};
+type Revision__934480660 =
+  {
+    actorName : Text;
+    cardId : ?Nat;
+    description : Text;
+    id : Nat;
+    projectId : Nat;
+    revisionType : Text;
+    timestamp : Int
+  };
+type Snapshot__142803051 =
+  {
+    data : Text;
+    id : Nat;
+    snapshotLabel : Text;
+    takenAt : Int;
+    takenByName : Text
+  };
+type Swimlane__697245780 =
+  {id : Nat; name : Text; order : Nat; projectId : Nat};
+type Tag__973970575 = {color : Text; id : Nat; name : Text; projectId : Nat};
+type User__831686142 =
+  {
+    id : Nat;
+    isAdmin : Bool;
+    isMasterAdmin : Bool;
+    name : Text;
+    pinHash : Text;
+    securityAnswerHash : ?Text;
+    securityQuestion : ?Text
+  };
+actor ({
+  stable var accessKey : Text;
+  stable cards :
+    {
+      var root : Node__46230540<Nat, Card__434522645>;
+      var size : Nat__490723111
+    };
+  stable checklists :
+    {
+      var root : Node__46230540<Nat, ChecklistItem__867883729>;
+      var size : Nat__490723111
+    };
+  stable columns :
+    {
+      var root : Node__46230540<Nat, Column__53281443>;
+      var size : Nat__490723111
+    };
+  stable comments :
+    {
+      var root : Node__46230540<Nat, Comment__473346131>;
+      var size : Nat__490723111
+    };
+  stable filterPresets :
+    {
+      var root : Node__46230540<Nat, FilterPreset__252447771>;
+      var size : Nat__490723111
+    };
+  stable var nextCardId : Nat;
+  stable var nextChecklistItemId : Nat;
+  stable var nextColumnId : Nat;
+  stable var nextCommentId : Nat;
+  stable var nextFilterPresetId : Nat;
+  stable var nextProjectId : Nat;
+  stable var nextRevisionId : Nat;
+  stable var nextSnapshotId : Nat;
+  stable var nextSwimlaneId : Nat;
+  stable var nextTagId : Nat;
+  stable var nextUserId : Nat;
+  stable projects :
+    {
+      var root : Node__46230540<Nat, Project__762223144>;
+      var size : Nat__490723111
+    };
+  stable revisions :
+    {
+      var root : Node__46230540<Nat, Revision__934480660>;
+      var size : Nat__490723111
+    };
+  stable snapshots :
+    {
+      var root : Node__46230540<Nat, Snapshot__142803051>;
+      var size : Nat__490723111
+    };
+  stable swimlanes :
+    {
+      var root : Node__46230540<Nat, Swimlane__697245780>;
+      var size : Nat__490723111
+    };
+  stable tags :
+    {
+      var root : Node__46230540<Nat, Tag__973970575>;
+      var size : Nat__490723111
+    };
+  stable users :
+    {
+      var root : Node__46230540<Nat, User__831686142>;
+      var size : Nat__490723111
+    }
+}, {
+  stable var accessKey : Text;
+  stable cards :
+    {
+      var root : Node__46230540<Nat, Card__434522645>;
+      var size : Nat__490723111
+    };
+  stable checklists :
+    {
+      var root : Node__46230540<Nat, ChecklistItem__867883729>;
+      var size : Nat__490723111
+    };
+  stable columns :
+    {
+      var root : Node__46230540<Nat, Column__53281443>;
+      var size : Nat__490723111
+    };
+  stable comments :
+    {
+      var root : Node__46230540<Nat, Comment__473346131>;
+      var size : Nat__490723111
+    };
+  stable filterPresets :
+    {
+      var root : Node__46230540<Nat, FilterPreset__252447771>;
+      var size : Nat__490723111
+    };
+  stable var nextCardId : Nat;
+  stable var nextChecklistItemId : Nat;
+  stable var nextColumnId : Nat;
+  stable var nextCommentId : Nat;
+  stable var nextFilterPresetId : Nat;
+  stable var nextProjectId : Nat;
+  stable var nextRevisionId : Nat;
+  stable var nextSnapshotId : Nat;
+  stable var nextSwimlaneId : Nat;
+  stable var nextTagId : Nat;
+  stable var nextUserId : Nat;
+  stable projects :
+    {
+      var root : Node__46230540<Nat, Project__762223144>;
+      var size : Nat__490723111
+    };
+  stable revisions :
+    {
+      var root : Node__46230540<Nat, Revision__934480660>;
+      var size : Nat__490723111
+    };
+  stable snapshots :
+    {
+      var root : Node__46230540<Nat, Snapshot__142803051>;
+      var size : Nat__490723111
+    };
+  stable swimlanes :
+    {
+      var root : Node__46230540<Nat, Swimlane__697245780>;
+      var size : Nat__490723111
+    };
+  stable tags :
+    {
+      var root : Node__46230540<Nat, Tag__973970575>;
+      var size : Nat__490723111
+    };
+  stable users :
+    {
+      var root : Node__46230540<Nat, User__831686142>;
+      var size : Nat__490723111
+    }
+}) ;

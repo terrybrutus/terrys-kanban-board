@@ -1,0 +1,189 @@
+type User = 
+ record {
+   id: nat;
+   isAdmin: bool;
+   isMasterAdmin: bool;
+   name: text;
+   pinHash: text;
+   securityAnswerHash: opt text;
+   securityQuestion: opt text;
+ };
+type Tag = 
+ record {
+   color: text;
+   id: nat;
+   name: text;
+   projectId: nat;
+ };
+type SnapshotMeta = 
+ record {
+   id: nat;
+   snapshotLabel: text;
+   takenAt: int;
+   takenByName: text;
+ };
+type Revision = 
+ record {
+   actorName: text;
+   cardId: opt nat;
+   description: text;
+   id: nat;
+   projectId: nat;
+   revisionType: text;
+   timestamp: int;
+ };
+type ProjectSummary = 
+ record {
+   dueSoonCount: nat;
+   overdueCount: nat;
+   tagCounts: vec record {
+                    nat;
+                    nat;
+                  };
+   totalCards: nat;
+   unassignedCount: nat;
+ };
+type Project = 
+ record {
+   id: nat;
+   name: text;
+   swimlanesEnabled: bool;
+ };
+type FilterPreset = 
+ record {
+   assigneeId: opt nat;
+   createdByUserId: nat;
+   dateField: opt text;
+   dateFrom: text;
+   dateTo: text;
+   id: nat;
+   name: text;
+   projectId: nat;
+   tagIds: vec nat;
+   textSearch: text;
+   unassignedOnly: bool;
+ };
+type Comment = 
+ record {
+   authorId: nat;
+   authorName: text;
+   cardId: nat;
+   id: nat;
+   "text": text;
+   timestamp: int;
+ };
+type ColumnView = 
+ record {
+   cardIds: vec nat;
+   id: nat;
+   isComplete: bool;
+   name: text;
+   projectId: nat;
+ };
+type ChecklistItem = 
+ record {
+   cardId: nat;
+   createdAt: int;
+   id: nat;
+   isDone: bool;
+   order: nat;
+   "text": text;
+ };
+type Card = 
+ record {
+   archivedAt: opt int;
+   assignedUserId: opt nat;
+   columnId: nat;
+   createdAt: int;
+   description: opt text;
+   dueDate: opt int;
+   id: nat;
+   isArchived: bool;
+   projectId: nat;
+   swimlaneId: opt nat;
+   tags: vec nat;
+   title: text;
+ };
+service : {
+  addChecklistItem: (cardId: nat, "text": text, actorUserId: nat) -> (nat);
+  addComment: (cardId: nat, "text": text, actorUserId: nat) -> (nat);
+  archiveCard: (cardId: nat, actorUserId: nat) -> ();
+  assignCard: (cardId: nat, userId: opt nat, actorUserId: nat) -> ();
+  changeUserPin: (userId: nat, oldPinHash: text, newPinHash: text) -> ();
+  clearRevisions: () -> ();
+  createCard: (title: text, description: opt text, columnId: nat,
+   actorUserId: nat, projectId: nat) -> (nat);
+  createColumn: (name: text, actorUserId: nat, projectId: nat) -> (nat);
+  createProject: (name: text, actorUserId: nat) -> (nat);
+  createTag: (projectId: nat, name: text, color: text, actorUserId: nat) ->
+   (nat);
+  createUser: (name: text, pinHash: text) -> (nat);
+  deleteCard: (cardId: nat, actorUserId: nat) -> ();
+  deleteChecklistItem: (itemId: nat, actorUserId: nat) -> ();
+  deleteColumn: (columnId: nat, actorUserId: nat) -> ();
+  deleteComment: (commentId: nat, actorUserId: nat) -> ();
+  deleteFilterPreset: (presetId: nat, actorUserId: nat) -> ();
+  deleteProject: (projectId: nat, actorUserId: nat) -> ();
+  deleteSnapshot: (snapshotId: nat, actorUserId: nat) -> ();
+  deleteTag: (tagId: nat, actorUserId: nat) -> ();
+  deleteUser: (userId: nat, actorUserId: nat) -> ();
+  demoteUser: (userId: nat, actorUserId: nat) -> ();
+  getAccessKey: () -> (text) query;
+  getArchivedCards: (projectId: nat) -> (vec Card) query;
+  getCardComments: (cardId: nat) -> (vec Comment) query;
+  getCardRevisions: (cardId: nat) -> (vec Revision) query;
+  getCards: (projectId: nat) -> (vec Card) query;
+  getChecklistItems: (cardId: nat) -> (vec ChecklistItem) query;
+  getColumns: (projectId: nat) -> (vec ColumnView) query;
+  getFilterPresets: (projectId: nat) -> (vec FilterPreset) query;
+  getProjectSummary: (projectId: nat) -> (ProjectSummary) query;
+  getProjectTags: (projectId: nat) -> (vec Tag) query;
+  getProjects: () -> (vec Project) query;
+  getRevisions: (projectId: nat) -> (vec Revision) query;
+  getSnapshot: (snapshotId: nat) -> (opt text) query;
+  getSnapshots: () -> (vec SnapshotMeta) query;
+  getUsers: () -> (vec User) query;
+  importCardSilent: (title: text, description: opt text, columnId: nat,
+   actorUserId: nat, projectId: nat) -> (nat);
+  importColumnSilent: (projectId: nat, name: text, actorUserId: nat) -> (nat);
+  importTagSilent: (projectId: nat, name: text, color: text, actorUserId:
+   nat) -> (nat);
+  initBoard: () -> ();
+  initDefaultProject: () -> (nat);
+  isAdminSetup: () -> (bool) query;
+  logRestoreEvent: (projectId: nat, actorUserId: nat, snapshotLabel: 
+   text, columnsCount: nat, cardsCount: nat) -> ();
+  moveCard: (cardId: nat, targetColumnId: nat, newPosition: nat, actorUserId:
+   nat) -> ();
+  moveCards: (cardIds: vec nat, targetColumnId: nat, actorUserId: nat) -> ();
+  promoteUser: (userId: nat, actorUserId: nat) -> ();
+  renameColumn: (columnId: nat, newName: text, actorUserId: nat) -> ();
+  renameProject: (projectId: nat, newName: text, actorUserId: nat) -> ();
+  renameTag: (tagId: nat, newName: text, actorUserId: nat) -> ();
+  renameUser: (userId: nat, newName: text, actorUserId: nat) -> ();
+  reorderChecklistItems: (cardId: nat, newOrder: vec nat, actorUserId:
+   nat) -> ();
+  reorderColumns: (newOrder: vec nat, actorUserId: nat) -> ();
+  resetMasterAdminPinWithSecurityAnswer: (answerHash: text, newPinHash:
+   text) -> (bool);
+  resetUserPin: (userId: nat, actorUserId: nat, newPinHash: text) -> ();
+  restoreCard: (cardId: nat, actorUserId: nat) -> ();
+  saveFilterPreset: (projectId: nat, createdByUserId: nat, name: text,
+   assigneeId: opt nat, tagIds: vec nat, unassignedOnly: bool, textSearch:
+   text, dateField: opt text, dateFrom: text, dateTo: text) -> (nat);
+  setAccessKey: (newKey: text, actorUserId: nat) -> ();
+  setColumnComplete: (columnId: nat, isComplete: bool, actorUserId: nat) ->
+   ();
+  setMasterAdminSecurityQuestion: (question: text, answerHash: text,
+   actorUserId: nat) -> ();
+  setupMasterAdmin: (name: text, pinHash: text) -> (nat);
+  storeSnapshot: (snapshotLabel: text, data: text, actorUserId: nat) -> (nat);
+  takeSnapshot: (snapshotLabel: text, actorUserId: nat) -> (nat);
+  updateCard: (cardId: nat, title: text, description: opt text, actorUserId:
+   nat) -> ();
+  updateCardDueDate: (cardId: nat, dueDate: opt int, actorUserId: nat) -> ();
+  updateCardTags: (cardId: nat, tagIds: vec nat, actorUserId: nat) -> ();
+  updateChecklistItem: (itemId: nat, "text": text, isDone: bool, actorUserId:
+   nat) -> ();
+  verifyPin: (userId: nat, pinHash: text) -> (bool) query;
+}
